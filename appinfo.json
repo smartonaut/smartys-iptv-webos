@@ -1,0 +1,15 @@
+{
+  "id": "com.smartys.iptv",
+  "version": "1.0.0",
+  "vendor": "Smartys",
+  "type": "web",
+  "main": "index.html",
+  "title": "Smartys M3U Player",
+  "icon": "icon.png",
+  "largeIcon": "icon-large.png",
+  "iconColor": "#0B0E14",
+  "resolution": "1920x1080",
+  "bgColor": "#0B0E14",
+  "disableBackHistoryAPI": true,
+  "allowVideoCapture": false
+}

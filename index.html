@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smartys M3U Player</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app" class="screen">
+
+        <!-- ===================== PIN-GATE ===================== -->
+        <section id="view-pin" class="view hidden">
+            <div class="pin-lock">🔒</div>
+            <div class="pin-title">PIN eingeben</div>
+            <div id="pin-dots" class="pin-dots"></div>
+            <div id="pin-err" class="msg error hidden">Falsche PIN</div>
+            <div id="pin-pad" class="pin-pad"></div>
+        </section>
+
+        <!-- ===================== PROFIL-WAHL ===================== -->
+        <section id="view-profiles" class="view hidden">
+            <div class="profile-title">Wer schaut?</div>
+            <div class="profile-sub">Favoriten & Fortsetzen sind pro Profil getrennt</div>
+            <div id="profile-grid" class="profile-grid"></div>
+        </section>
+
+        <!-- ===================== PAIRING ===================== -->
+        <section id="view-pairing" class="view">
+            <div class="brand">Smartys M3U Player</div>
+            <div class="subtitle">Player freischalten</div>
+            <div class="card">
+                <div class="card-label">Deine Player-ID</div>
+                <div id="player-id" class="card-value id">…</div>
+                <div class="card-label">Dein Passwort</div>
+                <div id="pairing-pw" class="card-value pw">…</div>
+            </div>
+            <ol class="steps">
+                <li>Gehe auf <b>panel.smartys.tech</b></li>
+                <li>Melde dich mit Player-ID und Passwort an</li>
+                <li>Hinterlege dort deine Playlist — dann hier „Prüfen“</li>
+            </ol>
+            <button id="btn-pair" class="btn-primary">Prüfen — Playlist laden</button>
+            <div id="pair-msg" class="msg"></div>
+        </section>
+
+        <!-- ===================== LADEN ===================== -->
+        <section id="view-loading" class="view hidden">
+            <div class="spinner"></div>
+            <div class="msg">Lade Inhalte…</div>
+        </section>
+
+        <!-- ===================== HAUPT-NAVIGATION (Tabs) ===================== -->
+        <section id="view-home" class="view hidden">
+            <div class="topbar">
+                <div class="topbar-title">Smartys M3U Player</div>
+                <div class="tabs" id="main-tabs">
+                    <button class="tab active" data-tab="live">Live-TV</button>
+                    <button class="tab" data-tab="movies">Filme</button>
+                    <button class="tab" data-tab="series">Serien</button>
+                    <button class="tab" data-tab="epg">Programm</button>
+                    <button class="tab" data-tab="downloads">Downloads</button>
+                </div>
+                <div class="topbar-right">
+                    <button id="btn-profile" class="btn-ghost">Profil</button>
+                    <button id="btn-settings" class="btn-ghost">⚙</button>
+                </div>
+            </div>
+
+            <!-- Live-TV -->
+            <div id="pane-live" class="pane">
+                <div class="columns">
+                    <div id="live-categories" class="sidebar"></div>
+                    <div id="live-channels" class="channellist"></div>
+                </div>
+            </div>
+
+            <!-- Filme -->
+            <div id="pane-movies" class="pane hidden">
+                <div class="pane-head">
+                    <div>
+                        <div class="pane-title">Filme</div>
+                        <div id="movies-count" class="pane-sub"></div>
+                    </div>
+                    <input id="movies-search" class="search" type="text" placeholder="Film suchen…">
+                </div>
+                <div class="columns">
+                    <div id="movies-categories" class="sidebar"></div>
+                    <div id="movies-grid" class="grid"></div>
+                </div>
+            </div>
+
+            <!-- Serien -->
+            <div id="pane-series" class="pane hidden">
+                <div class="pane-head">
+                    <div>
+                        <div class="pane-title">Serien</div>
+                        <div id="series-count" class="pane-sub"></div>
+                    </div>
+                    <input id="series-search" class="search" type="text" placeholder="Serie suchen…">
+                </div>
+                <div class="columns">
+                    <div id="series-categories" class="sidebar"></div>
+                    <div id="series-grid" class="grid"></div>
+                </div>
+            </div>
+
+            <!-- EPG-Grid -->
+            <div id="pane-epg" class="pane hidden">
+                <div class="epg-head">
+                    <div class="pane-title">Programmübersicht</div>
+                    <div id="epg-date" class="pane-sub"></div>
+                </div>
+                <div id="epg-grid" class="epg-grid"></div>
+            </div>
+
+            <!-- Downloads -->
+            <div id="pane-downloads" class="pane hidden">
+                <div class="pane-head">
+                    <div class="pane-title">Downloads</div>
+                    <div id="downloads-count" class="pane-sub"></div>
+                </div>
+                <div id="downloads-list" class="dl-list"></div>
+            </div>
+        </section>
+
+        <!-- ===================== FILM-DETAIL ===================== -->
+        <section id="view-movie-detail" class="view hidden">
+            <div id="movie-detail" class="detail"></div>
+        </section>
+
+        <!-- ===================== SERIEN-DETAIL ===================== -->
+        <section id="view-series-detail" class="view hidden">
+            <div id="series-detail" class="detail"></div>
+        </section>
+
+        <!-- ===================== SETTINGS ===================== -->
+        <section id="view-settings" class="view hidden">
+            <div class="settings">
+                <div class="settings-head">
+                    <div class="pane-title">Einstellungen</div>
+                    <button id="btn-settings-back" class="btn-ghost">← Zurück</button>
+                </div>
+                <div class="settings-body">
+                    <div class="settings-row">
+                        <span>Kindersicherung</span>
+                        <span id="pin-status" class="settings-val"></span>
+                        <button id="btn-pin-set" class="btn-ghost">PIN festlegen</button>
+                    </div>
+                    <div id="pin-form" class="hidden">
+                        <input id="pin-input" class="search" type="password" inputmode="numeric" maxlength="6" placeholder="Neue PIN (4–6 Ziffern)">
+                        <input id="pin-confirm" class="search" type="password" inputmode="numeric" maxlength="6" placeholder="PIN bestätigen">
+                        <button id="btn-pin-save" class="btn-primary small">Speichern</button>
+                        <button id="btn-pin-cancel" class="btn-ghost">Abbrechen</button>
+                        <div id="pin-msg" class="msg"></div>
+                    </div>
+                    <div class="settings-row">
+                        <span>Abmelden</span>
+                        <button id="btn-logout" class="btn-ghost danger">Abmelden</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== PLAYER ===================== -->
+        <section id="view-player" class="view hidden">
+            <video id="video" class="video" controls autoplay playsinline></video>
+            <div id="osd" class="osd hidden">
+                <div id="osd-title" class="osd-title"></div>
+                <div id="osd-epg" class="osd-epg"></div>
+                <div id="osd-bar" class="osd-bar"><div id="osd-progress" class="osd-progress"></div></div>
+            </div>
+            <div class="player-topbar">
+                <button id="btn-back" class="btn-ghost">← Zurück</button>
+                <div id="player-title" class="player-title"></div>
+            </div>
+        </section>
+    </div>
+
+    <script src="js/hls.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
