@@ -432,13 +432,18 @@ html, body {
     width: 1px; align-self: stretch; margin: 12px 0;
     background: #232C42; flex-shrink: 0;
 }
+.qr-card {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 10px; margin: 4px 0 8px 0;
+}
 .qr-box {
-    background: #FFFFFF; border-radius: 12px; padding: 10px;
-    width: 240px; height: 240px;
+    background: #FFFFFF; border-radius: 12px;
+    width: 270px; height: 270px;
     display: flex; align-items: center; justify-content: center;
     overflow: hidden;
 }
-.qr-box svg { width: 100%; height: 100%; display: block; }
+.qr-box svg, .qr-box table { display: block; margin: 0; padding: 0; }
+.qr-caption { color: #8FA3C8; font-size: 16px; margin: 0; }
 
 /* ---------- Fokus-Indikator (Fernbedienung) ---------- */
 .cat:focus, .ch:focus, .tab:focus, .menu-item:focus,

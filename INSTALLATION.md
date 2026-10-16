@@ -139,6 +139,6 @@ v1.1.0 — Parität mit Android v0.8.x
 - **Fokus-Ring**: Goldener Rahmen um das aktuell fokussierte Element
   (Fernbedienung-Navigation).
 - **Responsive**: Layout passt sich kleineren Auflösungen an (< 1280px).
-- **QR-Code auf dem Start-Screen** (wie Android): Weißer QR-Kasten neben
-  Player-ID/Passwort — mit dem Handy scannen öffnet
-  `panel.smartys.tech/pair?mac=…&pw=…` und koppelt den TV im Panel.
+- **QR-Code auf dem Start-Screen** (wie Android): Zentrierter weißer
+  QR-Kasten unter Player-ID/Passwort — mit dem Handy scannen öffnet
+  panel.smartys.tech/pair?… und koppelt den TV im Panel.

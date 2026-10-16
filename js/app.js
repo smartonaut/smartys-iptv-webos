@@ -844,8 +844,39 @@ function renderPairQr() {
         } catch (e) { /* Version zu klein → nächste */ }
     }
     if (!qr) { box.innerHTML = ""; return; }
-    try { box.innerHTML = qr.createSvgTag(4, 1, null, null); }
-    catch (e) { box.innerHTML = ""; }
+
+    /* Primärweg: reine HTML-Tabelle (100 % WebKit-kompatibel — kein
+       inline-SVG/innerHTML, das ältere webOS-Kerne verschlucken).
+       Fallback: Inline-SVG mit festen px-Attributen. */
+    var ok = false;
+    try {
+        var n = qr.getModuleCount(), cell = 6, r, c, tr, td;
+        var tbl = document.createElement("table");
+        tbl.style.borderCollapse = "collapse";
+        tbl.style.margin = "0";
+        tbl.style.padding = "0";
+        for (r = 0; r < n; r++) {
+            tr = document.createElement("tr");
+            for (c = 0; c < n; c++) {
+                td = document.createElement("td");
+                td.style.width = cell + "px";
+                td.style.height = cell + "px";
+                td.style.border = "none";
+                td.style.background = qr.isDark(r, c) ? "#0B0E14" : "#FFFFFF";
+                tr.appendChild(td);
+            }
+            tbl.appendChild(tr);
+        }
+        box.innerHTML = "";
+        box.appendChild(tbl);
+        ok = true;
+    } catch (e) { /* → SVG-Fallback */ }
+
+    if (!ok) {
+        try {
+            box.innerHTML = qr.createSvgTag(6, 1, null, null);
+        } catch (e2) { box.innerHTML = ""; }
+    }
 }
 
 function afterUnlock() {
