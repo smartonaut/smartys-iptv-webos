@@ -3,10 +3,11 @@ Smartys M3U Player — Installation auf LG TV (webOS)
 
 Voraussetzungen
 ---------------
-- LG TV mit webOS (neues Modell, 2024/2025 = webOS 24/25)
+- LG TV mit webOS (TV ist ~1 Jahr alt → webOS 24/25; die App nutzt
+  abwärtskompatible APIs, läuft also auch auf älteren webOS-Versionen)
 - Der TV und der Rechner (Raider, 192.168.1.238) müssen im selben Netz hängen
-- Die App-Datei: com.smartys.iptv_1.0.0_all.ipk
-  liegt auf dem Raider unter: /home/smarty/Projekte/SmartysIPTV-webOS/
+- Die App-Datei: com.smartys.iptv_1.1.0_all.ipk
+  liegt auf dem Raider unter: /home/smarty/Projekte/Smartys Player/webOS/
 
 
 Schritt 1 — LG Developer Mode einschalten (einmalig)
@@ -49,18 +50,18 @@ Es gibt zwei Wege. Weg A (über das Netz, empfohlen) ist der schnellste.
 WEG A — über das Netz vom Raider aus (empfohlen)
 ------------------------------------------------
 Auf dem Raider (dieser Rechner) ist die ares-cli schon installiert
-(unter ~/Projekte/SmartysIPTV-webOS/node_modules/.bin/).
+(unter ~/Projekte/Smartys Player/webOS/node_modules/.bin/).
 
 Zuerst den TV einmalig als Gerät registrieren:
 
-    cd ~/Projekte/SmartysIPTV-webOS
+    cd ~/Projekte/Smartys Player/webOS
     npx ares-setup-device -a <TV-IP> -p "<Passcode>"
 
     (Passcode = die 6-stellige Zahl aus der Developer-Mode-App)
 
 Danach die App installieren:
 
-    npx ares-install --device <TV-IP> com.smartys.iptv_1.0.0_all.ipk
+    npx ares-install --device <TV-IP> com.smartys.iptv_1.1.0_all.ipk
 
 Fertig. Die App erscheint nach ein paar Sekunden auf dem Home-Bildschirm
 unter dem Namen "Smartys M3U Player".
@@ -75,7 +76,7 @@ WEG B — über die Developer-Mode-App per Web-Server
 2. In der App den Punkt "Web Server" / "Upload" anklicken — die App zeigt dann
    eine Adresse im Browser an, z. B. http://<TV-IP>:80  (oder einen Link).
 3. Diese Adresse am Computer im Browser öffnen.
-4. Dort die Datei com.smartys.iptv_1.0.0_all.ipk hochladen.
+4. Dort die Datei com.smartys.iptv_1.1.0_all.ipk hochladen.
 5. Die App wird direkt installiert und erscheint auf dem Home-Bildschirm.
 
 WEG C — über USB-Stick (wenn kein Netz zwischen Rechner und TV)
@@ -89,14 +90,18 @@ WEG C — über USB-Stick (wenn kein Netz zwischen Rechner und TV)
 Schritt 4 — App einrichten (Pairing)
 ------------------------------------
 1. Die App "Smartys M3U Player" am TV starten.
-2. Es erscheint der Freischalt-Bildschirm mit zwei Werten:
+2. Es erscheint der Freischalt-Bildschirm mit drei Dingen:
      - Player-ID (z. B. 02:AB:CD:EF:12:34)
      - Passwort (12 Zeichen)
-3. Am Computer die Seite https://panel.smartys.tech öffnen.
-4. Mit Player-ID und Passwort anmelden.
-5. Dort die Playlist hinterlegen (die Xtream-Zugangsdaten).
-6. Zurück am TV auf "Prüfen — Playlist laden" klicken.
-7. Die App lädt Kanäle, Filme und Serien und zeigt dann die Hauptansicht.
+     - QR-Code (weißes Feld, wie auf Android)
+3A. QR-WEG (einfachste Variante): QR-Code mit dem Handy scannen → öffnet
+    https://panel.smartys.tech/pair?mac=…&pw=… und koppelt den TV direkt.
+    Danach Playlist im Panel hinterlegen und am TV auf
+    „Prüfen — Playlist laden" klicken.
+3B. Klassischer Weg: Am Computer https://panel.smartys.tech öffnen, mit
+    Player-ID und Passwort anmelden, Playlist hinterlegen (Xtream-Zugangsdaten).
+4. Zurück am TV auf „Prüfen — Playlist laden" klicken.
+5. Die App lädt Kanäle, Filme und Serien und zeigt dann die Hauptansicht.
 
 
 Hinweise
@@ -109,3 +114,31 @@ Hinweise
   (panel.smartys.tech). Einmal gepairt, gelten die Zugangsdaten wie überall.
 - Sollte ein Kanal schwarz bleiben: Die App nutzt hls.js. Bei älteren webOS-
   Versionen greift automatisch natives HLS (Safari/WebKit).
+- Für den Freund-TV ist WEG C (USB-Stick) der einfachste Weg: .ipk vom
+  Raider herunterladen (oder von smartys.tech), auf einen FAT32/NTFS-Stick
+  kopieren, TV stecken und in der Developer-Mode-App installieren.
+
+
+v1.1.0 — Parität mit Android v0.8.x
+------------------------------------
+- **Sicherheits-Passwort**: Verschlüsselte Provider-Zeilen (PBKDF2 + AES-GCM,
+  exakt wie Android). Passt das Passwort, werden die Zugangsdaten direkt im
+  TV entschlüsselt und lokal gespeichert.
+- **Menu-Taste auf der Fernbedienung**: Öffnet die Verwaltuns-Übersicht —
+  Sortieren (A→Z / Z→A / nach oben-unten), Umbenennen, Ausblenden,
+  „Nur markierte behalten", Zurücksetzen. Gilt für Live-Kategorien,
+  Filme, Serien — alles pro Profil gespeichert.
+- **Kanal-Menü** (Menu-Taste auf Kanal oder Doppelklick): FSK-Sperre
+  (PIN), Reihenfolge, Ausblenden.
+- **Markierungs-Workflow**: Buttons oben (klein), große Liste darunter —
+  markiert = behalten, wie auf dem Cube.
+- **FSK-18**: Geklöpte Kanäle werden erst nach PIN-Eingabe abgespielt
+  (PIN = dieselbe wie der App-PIN in den Einstellungen).
+- **Alle-Kategorie**: Ausgeblendete Kategorien/Gruppen werden unter
+  „Alle Kanäle"/„Alle Filme"/„Alle Serien" automatisch ausgeblendet.
+- **Fokus-Ring**: Goldener Rahmen um das aktuell fokussierte Element
+  (Fernbedienung-Navigation).
+- **Responsive**: Layout passt sich kleineren Auflösungen an (< 1280px).
+- **QR-Code auf dem Start-Screen** (wie Android): Weißer QR-Kasten neben
+  Player-ID/Passwort — mit dem Handy scannen öffnet
+  `panel.smartys.tech/pair?mac=…&pw=…` und koppelt den TV im Panel.

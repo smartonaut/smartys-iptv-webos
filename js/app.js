@@ -2,17 +2,28 @@
 
 /* =====================================================================
  *  Smartys M3U Player — webOS TV App
- *  Feature-Paritaet zur Android-/Desktop-App:
- *  Pairing, Live-TV, VOD (Filme/Serien), EPG-Grid, Catch-up/Timeshift,
- *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
+ *  v1.1.0 — Feature-Paritaet zur Android-App v0.8.6:
+ *  - Sicherheits-Passwort ( verschluesselte M3U-Payload aus dem Panel,
+ *    WebCrypto: PBKDF2-HMAC-SHA256 310k + AES-256-GCM, AAD
+ *    "smartys-iptv-sec:"+PlayerID — identisch mit Android SecCrypto.kt)
+ *  - Kategorie-Verwaltung: A→Z / Z→A, verschieben, umbenennen,
+ *    ausblenden, Mehrfach-Markierung (MARKIERT = BEHALTEN)
+ *  - Kanal-Verwaltung: FSK-18-PIN-Gate, sortieren, ausblenden
+ *  - Elternschutz-PIN: Gate-Untertitel, PIN in Einstellungen entfernen
+ *  - "Alle Kanäle" blendet ausgeblendete Kategorien aus (v0.8.5)
+ *  - VOD: ausgeblendete Kategorien unter "Alle" gefiltert (v0.8.6)
+ *  - Menu-Taste (keyCode 275 / webOSRemote) = Verwaltung öffnen
  *
+ *  Feature-Paritaet zur Android-/Desktop-App:
+ *  Pairing, Live-TV, VOD (Movies/Series), EPG-Grid, Catch-up/Timeshift,
+ *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
  *  Backend:  panel.smartys.tech  (Pairing + Provider + TMDB-Proxy)
  *  Xtream:   player_api.php des jeweiligen Providers
  *  Wiedergabe: hls.js (Fallback natives HLS auf WebKit-Engines)
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.0.0";
+var APP_VERSION = "1.1.0";
 
 var state = {
     playerId: null,
@@ -123,6 +134,43 @@ function httpGetJson(url, headers) {
 }
 
 /* =====================================================================
+ *  SecCrypto (WebCrypto) — Panel verschlüsselte M3U-Zeilen
+ *  Vertrag = Android SecCrypto.kt + iptv-backend/app/crypto.py (bindend):
+ *  - Key:  PBKDF2WithHmacSHA256, 256 Bit, Salt = b64("salt"),
+ *          Iterationen aus der API-Antwort (Standard 310.000)
+ *  - Ciph: AES-256-GCM, Token = b64(nonce[12] || ct+tag)
+ *  - AAD:  "smartys-iptv-sec:" + PlayerID  (bindet an diesen Player)
+ *  - Defekt/falsches Passwort → leerer String, NIE crashen
+ * ===================================================================== */
+
+var SEC_AAD_PREFIX = "smartys-iptv-sec:";
+var SEC_WEB_CRYPTO = !!(window.crypto && crypto.subtle);
+
+function secB64ToBytes(b64) {
+    var bin = atob(b64), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+function secDeriveKey(password, saltB64, iterations) {
+    if (!SEC_WEB_CRYPTO) return Promise.reject(new Error("WebCrypto nicht verfügbar"));
+    var baseKey = crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: secB64ToBytes(saltB64), iterations: iterations, hash: "SHA-256" },
+        baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+}
+function secDecryptField(key, tokenB64, playerId) {
+    if (!tokenB64) return Promise.resolve("");
+    var raw;
+    try { raw = secB64ToBytes(tokenB64); } catch (e) { return Promise.resolve(""); }
+    if (raw.length <= 12) return Promise.resolve("");
+    return crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: raw.slice(0, 12), additionalData: new TextEncoder().encode(SEC_AAD_PREFIX + playerId) },
+        key, raw.slice(12)
+    ).then(function (buf) { return new TextDecoder().decode(buf); })
+     .catch(function () { return ""; });
+}
+
+/* =====================================================================
  *  Backend (panel.smartys.tech): Pairing, Provider, TMDB
  * ===================================================================== */
 
@@ -137,10 +185,87 @@ function pair() {
 function fetchProviders() {
     return httpGetJson(PANEL + "/api/v1/providers", { "Authorization": "Bearer " + state.token })
         .then(function (body) {
+            // Panel kann die M3U-Zeilen verschlüsselt liefern (Sicherheits-Passwort).
+            if (body && body.encrypted) {
+                var sec = {
+                    salt: body.salt || "",
+                    iterations: body.iterations || 310000,
+                    providers: (body.providers || [])
+                        .filter(function (p) { return p && p.cipher_server_url && p.cipher_username && p.cipher_password; })
+                        .map(function (p) {
+                            return { label: p.label || "", cipherServerUrl: p.cipher_server_url, cipherUsername: p.cipher_username, cipherPassword: p.cipher_password };
+                        })
+                };
+                if (sec.providers.length === 0) throw new Error("EMPTY");
+                state.pendingSec = sec;
+                throw new Error("SEC"); // sentinel: Unlock-View anzeigen
+            }
             state.providers = (body.providers || []).filter(function (p) { return p.active; });
             if (state.providers.length === 0) throw new Error("EMPTY");
             return state.providers;
         });
+}
+
+/* Sicherheits-Passwort: verschlüsselte Zeile entschlüsseln (wie Android
+ * MainViewModel.unlockLine — Plaintext danach lokal persistieren, damit
+ * der nächste Start ohne Passwort möglich ist). */
+function unlockLine(password) {
+    var sec = state.pendingSec;
+    if (!sec || !sec.salt) return Promise.resolve(false);
+    return secDeriveKey(password, sec.salt, sec.iterations).then(function (key) {
+        var jobs = sec.providers.map(function (p) {
+            return secDecryptField(key, p.cipherServerUrl, state.playerId)
+                .then(function (url) {
+                    return secDecryptField(key, p.cipherUsername, state.playerId).then(function (user) {
+                        return secDecryptField(key, p.cipherPassword, state.playerId).then(function (pass) {
+                            return { server_url: url, username: user, password: pass, label: p.label };
+                        });
+                    });
+                });
+        });
+        return Promise.all(jobs);
+    }).then(function (provs) {
+        provs = (provs || []).filter(function (p) { return p.server_url && p.username && p.password; });
+        if (provs.length === 0) return false;
+        state.providers = provs;
+        state.pendingSec = null;
+        try { localStorage.setItem("providers_json", JSON.stringify(provs)); } catch (e) {}
+        return true;
+    }).catch(function () { return false; });
+}
+
+function showUnlock() {
+    var msg = document.getElementById("unlock-msg");
+    msg.textContent = "Diese Provider-Zeile ist verschlüsselt. Bitte Sicherheits-Passwort eingeben.";
+    msg.className = "msg";
+    var inp = document.getElementById("unlock-input");
+    inp.value = "";
+    show("view-unlock");
+    try { inp.focus(); } catch (e) {}
+}
+
+function doUnlock() {
+    var pw = document.getElementById("unlock-input").value;
+    if (!pw) return;
+    document.getElementById("unlock-msg").textContent = "Entschlüssele…";
+    show("view-loading");
+    unlockLine(pw).then(function (ok) {
+        if (ok) {
+            lsSet("providers_json", state.providers);
+            if (state.token) lsSet("token", state.token);
+            loadAll().then(function () { show("view-home"); });
+        } else {
+            showUnlock();
+            var m = document.getElementById("unlock-msg");
+            m.textContent = "❌ Passwort falsch — die Zeile bleibt verschlüsselt.";
+            m.className = "msg error";
+        }
+    }).catch(function (e) {
+        showUnlock();
+        var m2 = document.getElementById("unlock-msg");
+        m2.textContent = "Fehler: " + (e && e.message ? e.message : e);
+        m2.className = "msg error";
+    });
 }
 function fetchTmdbMovie(tmdbId) {
     return httpGetJson(PANEL + "/api/v1/tmdb/movie/" + encodeURIComponent(tmdbId)).catch(function () { return null; });
@@ -182,7 +307,7 @@ function timeshiftUrl(streamId, startEpoch, durationHours) {
  *  View-Wechsel
  * ===================================================================== */
 
-var VIEWS = ["view-pin", "view-profiles", "view-pairing", "view-loading", "view-home",
+var VIEWS = ["view-pin", "view-profiles", "view-pairing", "view-unlock", "view-loading", "view-home",
              "view-movie-detail", "view-series-detail", "view-settings", "view-player"];
 
 function show(id) {
@@ -249,6 +374,440 @@ function ensureDefaultProfile() {
 }
 
 /* =====================================================================
+ *  Katalog-Präferenzen (Parität Android CategoryPrefs/ChannelPrefs)
+ *  Pro Profil + Scope (live/movies/series) in localStorage.
+ * ===================================================================== */
+
+function catK(scope, key) { return profileScope("cat_" + scope + "_" + key); }
+function chK(key) { return profileScope("chl_" + key); }
+
+function makeCatPrefs(scope) {
+    var cp = {};
+    cp.order = function () { return lsGet(catK(scope, "order"), []); };
+    cp.hidden = function () { return lsGet(catK(scope, "hidden"), []); };
+    cp.renames = function () { return lsGet(catK(scope, "rename"), {}); };
+    cp.isHidden = function (catId) { return cp.hidden().indexOf(catId) >= 0; };
+    cp.labelOf = function (cat) {
+        var r = cp.renames();
+        return (r[cat.category_id] && r[cat.category_id].trim()) ? r[cat.category_id] : (cat.category_name || "Unbenannt");
+    };
+    cp.hasCustom = function (catId) { return !!(cp.renames()[catId] && cp.renames()[catId].trim()); };
+    cp.applyTo = function (cats) {
+        var list = (cats || []).filter(function (c) { return !cp.isHidden(c.category_id); });
+        var ord = cp.order();
+        if (!ord.length) return list;
+        var inOrd = [];
+        for (var i = 0; i < ord.length; i++) {
+            for (var j = 0; j < list.length; j++) if (list[j].category_id === ord[i]) { inOrd.push(list[j]); break; }
+        }
+        var rest = list.filter(function (c) { return ord.indexOf(c.category_id) < 0; });
+        return inOrd.concat(rest);
+    };
+    cp.currentOrder = function (cats) {
+        var ids = (cats || []).map(function (c) { return c.category_id; });
+        var saved = cp.order().filter(function (id) { return ids.indexOf(id) >= 0; });
+        return saved.concat(ids.filter(function (id) { return saved.indexOf(id) < 0; }));
+    };
+    cp.saveOrder = function (ids) { lsSet(catK(scope, "order"), ids); };
+    cp.listSorted = function (cats, asc) {
+        var list = (cats || []).slice().sort(function (a, b) {
+            return cp.labelOf(a).localeCompare(cp.labelOf(b), "de");
+        });
+        if (!asc) list.reverse();
+        cp.saveOrder(list.map(function (c) { return c.category_id; }));
+    };
+    cp.moveUp = function (catId, cats) {
+        var list = cp.currentOrder(cats).slice();
+        var i = list.indexOf(catId);
+        if (i > 0) { list.splice(i, 1); list.splice(i - 1, 0, catId); cp.saveOrder(list); }
+    };
+    cp.moveDown = function (catId, cats) {
+        var list = cp.currentOrder(cats).slice();
+        var i = list.indexOf(catId);
+        if (i >= 0 && i < list.length - 1) { list.splice(i, 1); list.splice(i + 1, 0, catId); cp.saveOrder(list); }
+    };
+    cp.setLabel = function (catId, label) {
+        var r = cp.renames();
+        if (label && label.trim()) r[catId] = label.trim();
+        else delete r[catId];
+        lsSet(catK(scope, "rename"), r);
+    };
+    cp.hideMany = function (ids) {
+        var h = cp.hidden();
+        (ids || []).forEach(function (id) { if (h.indexOf(id) < 0) h.push(id); });
+        lsSet(catK(scope, "hidden"), h);
+    };
+    cp.unhideAll = function () { lsSet(catK(scope, "hidden"), []); };
+    cp.resetAll = function () {
+        lsDel(catK(scope, "order"));
+        lsDel(catK(scope, "hidden"));
+        lsDel(catK(scope, "rename"));
+    };
+    return cp;
+}
+
+function makeChanPrefs() {
+    var cp = {};
+    cp.hidden = function () { return lsGet(chK("hidden"), []); };
+    cp.isHidden = function (id) { return cp.hidden().indexOf(id) >= 0; };
+    cp.locked = function () { return lsGet(chK("locked"), []); };
+    cp.isLocked = function (id) { return cp.locked().indexOf(id) >= 0; };
+    cp.sortMode = function () { return lsGet(chK("sort"), "num"); };
+    cp.setSortMode = function (m) { lsSet(chK("sort"), m); lsDel(chK("order")); };
+    cp.orderIds = function () { return lsGet(chK("order"), []); };
+    cp.apply = function (channels) {
+        var list = (channels || []).slice();
+        if (cp.sortMode() === "name") list.sort(function (a, b) { return (a.name || "").localeCompare(b.name || "", "de"); });
+        var order = cp.orderIds();
+        if (order.length > 0) {
+            var map = {};
+            list.forEach(function (c) { map[c.stream_id] = c; });
+            var inOrder = order.map(function (id) { return map[id]; }).filter(function (c) { return c; });
+            var seen = {};
+            inOrder.forEach(function (c) { seen[c.stream_id] = true; });
+            var rest = list.filter(function (c) { return !seen[c.stream_id]; });
+            list = inOrder.concat(rest);
+        }
+        return list;
+    };
+    cp.currentOrder = function (channels) {
+        var ids = (channels || []).map(function (c) { return c.stream_id; });
+        var saved = cp.orderIds().filter(function (id) { return ids.indexOf(id) >= 0; });
+        return saved.concat(ids.filter(function (id) { return saved.indexOf(id) < 0; }));
+    };
+    cp.saveOrder = function (ids) { lsSet(chK("order"), ids); };
+    cp.moveUp = function (chId, channels) {
+        var list = cp.currentOrder(channels).slice();
+        var i = list.indexOf(chId);
+        if (i > 0) { list.splice(i, 1); list.splice(i - 1, 0, chId); cp.saveOrder(list); }
+    };
+    cp.moveDown = function (chId, channels) {
+        var list = cp.currentOrder(channels).slice();
+        var i = list.indexOf(chId);
+        if (i >= 0 && i < list.length - 1) { list.splice(i, 1); list.splice(i + 1, 0, chId); cp.saveOrder(list); }
+    };
+    cp.hideMany = function (ids) {
+        var h = cp.hidden();
+        (ids || []).forEach(function (id) { if (h.indexOf(id) < 0) h.push(id); });
+        lsSet(chK("hidden"), h);
+    };
+    cp.unhideAll = function () { lsSet(chK("hidden"), []); };
+    cp.setLocked = function (chId, on) {
+        var l = cp.locked();
+        var i = l.indexOf(chId);
+        if (on && i < 0) l.push(chId);
+        if (!on && i >= 0) l.splice(i, 1);
+        lsSet(chK("locked"), l);
+    };
+    cp.resetAll = function () {
+        lsDel(chK("hidden"));
+        lsDel(chK("locked"));
+        lsDel(chK("order"));
+        lsDel(chK("sort"));
+    };
+    return cp;
+}
+
+/* =====================================================================
+ *  Menu-Overlay (Menu-Taste: Verwaltung — Parität Android Sort/Mark-Dialog)
+ * ===================================================================== */
+
+var menuState = { scope: null, cat: null, ch: null, mode: 0, marked: [] };
+
+function menuRefresh() {
+    if (menuState.scope === "live") {
+        makeCatPrefs("live").applyTo(state.categories);
+        renderLiveCategories();
+        renderLiveChannels();
+    } else if (menuState.scope === "movies") renderMovies();
+    else if (menuState.scope === "series") renderSeries();
+}
+
+function menuButton(label, cls, onclick) {
+    var b = document.createElement("button");
+    b.className = "menu-btn" + (cls ? " " + cls : "");
+    b.textContent = label;
+    b.onclick = onclick;
+    return b;
+}
+
+function openOverlay(title, bodyHtml) {
+    document.getElementById("menu-title").textContent = title;
+    var body = document.getElementById("menu-body");
+    body.innerHTML = bodyHtml || "";
+    document.getElementById("menu-overlay").classList.remove("hidden");
+}
+
+function closeMenu() {
+    document.getElementById("menu-overlay").classList.add("hidden");
+    menuState = { scope: null, cat: null, ch: null, mode: 0, marked: [] };
+}
+
+function openCatMenu(scope, cat, mode) {
+    menuState.scope = scope;
+    menuState.cat = cat;
+    menuState.mode = mode || 0;
+    renderCatMenuMode();
+}
+
+function renderCatMenuMode() {
+    var scope = menuState.scope;
+    var cat = menuState.cat;
+    var prefs = makeCatPrefs(scope);
+    var all = makeCatPrefs(scope).applyTo; // placeholder
+    var cats = scope === "live" ? state.categories : (scope === "movies" ? state.vodCategories : state.seriesCategories);
+    var body = document.getElementById("menu-body");
+    body.innerHTML = "";
+
+    if (menuState.mode === 0) {
+        var r = function (c) {
+            var row = document.createElement("div");
+            row.className = "menu-row";
+            var vis = prefs.applyTo(cats).filter(function (c2) { return c2.category_id === cat.category_id; });
+            var first = vis.length === 0 || vis[0].category_id === cat.category_id;
+            var last = vis.length > 0 && vis[vis.length - 1].category_id === cat.category_id;
+            var up = menuButton("▲ Nach oben", first ? "disabled" : "", function () { prefs.moveUp(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
+            var down = menuButton("▼ Nach unten", last ? "disabled" : "", function () { prefs.moveDown(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
+            row.appendChild(up); row.appendChild(down);
+            body.appendChild(row);
+            var r2 = document.createElement("div");
+            r2.className = "menu-row";
+            r2.appendChild(menuButton("✏️ Umbenennen", "", function () {
+                menuState.mode = 2;
+                renderCatRenameInput(scope, cat, prefs);
+            }));
+            if (prefs.hasCustom(cat.category_id)) {
+                r2.appendChild(menuButton("🔁 Originalname zurücksetzen", "", function () { prefs.setLabel(cat.category_id, ""); menuRefresh(); openCatMenu(scope, cat, 0); }));
+            }
+            r2.appendChild(menuButton("🎯 Mehrere markieren", "", function () { menuState.marked = [cat.category_id]; openCatMenu(scope, cat, 1); }));
+            body.appendChild(r2);
+            var r3 = document.createElement("div");
+            r3.className = "menu-row";
+            r3.appendChild(menuButton("🚫 " + prefs.isHidden(cat.category_id) ? "👁 Wieder einblenden" : "🚫 Ausblenden", prefs.isHidden(cat.category_id) ? "" : "danger", function () {
+                if (prefs.isHidden(cat.category_id)) prefs.hideMany([]);
+                // toggle: einblenden = aus hidden entfernen
+                var h = prefs.hidden().filter(function (id) { return id !== cat.category_id; });
+                lsSet(catK(scope, "hidden"), h);
+                menuRefresh();
+                openCatMenu(scope, cat, 0);
+            }));
+            r3.appendChild(menuButton("👁 Alle wieder einblenden", "", function () { prefs.unhideAll(); menuRefresh(); openCatMenu(scope, cat, 0); }));
+            body.appendChild(r3);
+            body.appendChild(menuButton("♻️ Alles zurücksetzen (Sortierung + Namen + Hidden)", "danger", function () {
+                prefs.resetAll();
+                menuRefresh();
+                openCatMenu(scope, cat, 0);
+            }));
+        };
+        r(prefs);
+    } else if (menuState.mode === 1) {
+        // MARKIERUNG: Buttons OBEN/KLEIN, Liste DARUNTER, MARKIERT = BEHALTEN
+        var top = document.createElement("div");
+        top.className = "menu-topbtns";
+        var marked = menuState.marked;
+        var visibleList = prefs.applyTo(cats);
+        top.appendChild(menuButton("✅ Alle markieren", "mini", function () {
+            menuState.marked = visibleList.map(function (c) { return c.category_id; });
+            renderCatMenuMode();
+        }));
+        top.appendChild(menuButton("⬜ Aufheben", "mini", function () { menuState.marked = []; renderCatMenuMode(); }));
+        top.appendChild(menuButton("▲ Block oben", "mini", function () {
+            var ids = [];
+            var cur = prefs.currentOrder(cats).slice();
+            cur.forEach(function (id) { if (marked.indexOf(id) >= 0) ids.push(id); });
+            if (ids.length > 0) {
+                var moved = cur.filter(function (id) { return ids.indexOf(id) < 0; });
+                prefs.saveOrder(ids.concat(moved));
+                menuRefresh(); renderCatMenuMode();
+            }
+        }));
+        top.appendChild(menuButton("▼ Block unten", "mini", function () {
+            var ids = [];
+            var cur = prefs.currentOrder(cats).slice();
+            cur.forEach(function (id) { if (marked.indexOf(id) >= 0) ids.push(id); });
+            if (ids.length > 0) {
+                var moved = cur.filter(function (id) { return ids.indexOf(id) < 0; });
+                prefs.saveOrder(moved.concat(ids));
+                menuRefresh(); renderCatMenuMode();
+            }
+        }));
+        top.appendChild(menuButton("🚫 Nur markierte behalten", "mini danger", function () {
+            prefs.unhideAll();
+            prefs.hideMany(cur2 = prefs.currentOrder(cats).filter(function (id) { return menuState.marked.indexOf(id) < 0; }));
+            menuRefresh(); renderCatMenuMode();
+        }));
+        top.appendChild(menuButton("🚫 Markierte ausblenden", "mini danger", function () {
+            prefs.hideMany(menuState.marked);
+            menuState.marked = [];
+            menuRefresh(); renderCatMenuMode();
+        }));
+        top.appendChild(menuButton("✓ Fertig", "mini gold", function () { closeMenu(); }));
+        body.appendChild(top);
+
+        var counter = document.createElement("div");
+        counter.className = "menu-counter";
+        counter.textContent = menuState.marked.length + " von " + visibleList.length + " markiert  (MARKIERT = BEHALTEN)";
+        body.appendChild(counter);
+
+        var list = document.createElement("div");
+        list.className = "menu-list";
+        visibleList.forEach(function (c) {
+            var row = document.createElement("div");
+            row.className = "menu-item" + (menuState.marked.indexOf(c.category_id) >= 0 ? " marked" : "");
+            row.textContent = (menuState.marked.indexOf(c.category_id) >= 0 ? "☑ " : "☐ ") + prefs.labelOf(c);
+            row.onclick = function () {
+                var i = menuState.marked.indexOf(c.category_id);
+                if (i >= 0) menuState.marked.splice(i, 1); else menuState.marked.push(c.category_id);
+                renderCatMenuMode();
+            };
+            list.appendChild(row);
+        });
+        body.appendChild(list);
+    }
+}
+
+function renderCatRenameInput(scope, cat, prefs) {
+    menuState.mode = 2;
+    var body = document.getElementById("menu-body");
+    body.innerHTML = "";
+    var wrap = document.createElement("div");
+    wrap.className = "menu-rename";
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.value = cat.category_name || "";
+    inp.className = "menu-input";
+    inp.placeholder = "Neuer Name…";
+    wrap.appendChild(inp);
+    var row = document.createElement("div");
+    row.className = "menu-row";
+    row.appendChild(menuButton("💾 Speichern", "gold", function () {
+        prefs.setLabel(cat.category_id, inp.value);
+        menuRefresh();
+        openCatMenu(scope, cat, 0);
+    }));
+    row.appendChild(menuButton("✖ Abbrechen", "", function () { openCatMenu(scope, cat, 0); }));
+    wrap.appendChild(row);
+    body.appendChild(wrap);
+    try { inp.focus(); } catch (e) {}
+}
+
+function openChanMenu(ch) {
+    menuState.scope = "live";
+    menuState.ch = ch;
+    menuState.cat = null;
+    var prefs = makeChanPrefs();
+    var body = document.getElementById("menu-body");
+    body.innerHTML = "";
+    var pinOk = pinEnabled();
+    if (!pinOk) {
+        var note = document.createElement("div");
+        note.className = "menu-note";
+        note.textContent = "Hinweis: FSK-Sperre braucht eine PIN — zuerst in den Einstellungen PIN festlegen.";
+        body.appendChild(note);
+    }
+    var r1 = document.createElement("div");
+    r1.className = "menu-row";
+    r1.appendChild(menuButton(prefs.isLocked(ch.stream_id) ? "🔓 FSK-Sperre aus" : "🔒 FSK-18 Sperre an", prefs.isLocked(ch.stream_id) ? "" : (pinOk ? "" : "disabled"), function () {
+        prefs.setLocked(ch.stream_id, !prefs.isLocked(ch.stream_id));
+        menuRefresh();
+        openChanMenu(ch);
+    }));
+    body.appendChild(r1);
+    var all = state.channels;
+    var visible = prefs.apply(all).filter(function (c) { return !prefs.isHidden(c.stream_id); });
+    var idx = -1;
+    visible.forEach(function (c, i) { if (c.stream_id === ch.stream_id) idx = i; });
+    var r2 = document.createElement("div");
+    r2.className = "menu-row";
+    r2.appendChild(menuButton("▲ Nach oben", idx <= 0 ? "disabled" : "", function () { prefs.moveUp(ch.stream_id, all); menuRefresh(); openChanMenu(ch); }));
+    r2.appendChild(menuButton("▼ Nach unten", idx < 0 || idx >= visible.length - 1 ? "disabled" : "", function () { prefs.moveDown(ch.stream_id, all); menuRefresh(); openChanMenu(ch); }));
+    body.appendChild(r2);
+    var r3 = document.createElement("div");
+    r3.className = "menu-row";
+    r3.appendChild(menuButton("🚫 Kanal ausblenden", "danger", function () {
+        prefs.hideMany([ch.stream_id]);
+        menuRefresh();
+        closeMenu();
+    }));
+    r3.appendChild(menuButton("👁 Alle Kanäle wieder einblenden", "", function () { prefs.unhideAll(); menuRefresh(); openChanMenu(ch); }));
+    body.appendChild(r3);
+    body.appendChild(menuButton("♻️ Alles zurücksetzen (Kanal-Einstellungen)", "danger", function () {
+        prefs.resetAll();
+        menuRefresh();
+        openChanMenu(ch);
+    }));
+    var note2 = document.createElement("div");
+    note2.className = "menu-note";
+    note2.textContent = "Menu-Taste auf Kanal oder Kategorie = Verwaltung • Back schließt";
+    body.appendChild(note2);
+}
+
+function pickCats(scope, cats) {
+    menuState.scope = scope;
+    var prefs = makeCatPrefs(scope);
+    var body = document.getElementById("menu-body");
+    openOverlayRaw("Kategorie wählen", scope);
+    body.innerHTML = "";
+    var note = document.createElement("div");
+    note.className = "menu-note";
+    note.textContent = "Menu-Taste auf einer Kategorie = direkt verwalten";
+    body.appendChild(note);
+    var list = document.createElement("div");
+    list.className = "menu-list";
+    prefs.applyTo(cats).forEach(function (c) {
+        var row = document.createElement("div");
+        row.className = "menu-item";
+        row.setAttribute("data-cat-id", c.category_id);
+        row.textContent = prefs.labelOf(c);
+        row.onclick = function () { openCatMenu(scope, c, 0); };
+        list.appendChild(row);
+    });
+    body.appendChild(list);
+}
+
+function openOverlayRaw(title, scope) {
+    document.getElementById("menu-title").textContent = title;
+    document.getElementById("menu-overlay").classList.remove("hidden");
+}
+
+function onMenuKey() {
+    var overlay = document.getElementById("menu-overlay");
+    if (overlay && !overlay.classList.contains("hidden")) { closeMenu(); return true; }
+    if (state.currentView !== "view-home") return false;
+    var tab = null;
+    var tabEls = document.querySelectorAll(".tab");
+    for (var i = 0; i < tabEls.length; i++) {
+        if (tabEls[i].classList.contains("active")) { tab = tabEls[i].getAttribute("data-tab"); break; }
+    }
+    var scope = tab === "movies" ? "movies" : tab === "series" ? "series" : "live";
+    if (scope === "live") {
+        var chId = document.activeElement ? document.activeElement.getAttribute("data-ch-id") : null;
+        if (chId) {
+            for (var j = 0; j < state.channels.length; j++) {
+                if (String(state.channels[j].stream_id) === chId) { openChanMenu(state.channels[j]); return true; }
+            }
+        }
+        var catId = document.activeElement ? document.activeElement.getAttribute("data-cat-id") : null;
+        if (catId) {
+            for (var k = 0; k < state.categories.length; k++) {
+                if (String(state.categories[k].category_id) === catId) { openCatMenu("live", state.categories[k], 0); return true; }
+            }
+        }
+        pickCats("live", state.categories);
+    } else {
+        var cats = scope === "movies" ? state.vodCategories : state.seriesCategories;
+        var vcatId = document.activeElement ? document.activeElement.getAttribute("data-cat-id") : null;
+        if (vcatId) {
+            for (var m = 0; m < cats.length; m++) {
+                if (String(cats[m].category_id) === vcatId) { openCatMenu(scope, cats[m], 0); return true; }
+            }
+        }
+        pickCats(scope, cats);
+    }
+    return true;
+}
+
+/* =====================================================================
  *  Flow: Start -> PIN -> Profil -> Pairing/Home
  * ===================================================================== */
 
@@ -267,6 +826,28 @@ function startFlow() {
     }
 }
 
+function renderPairQr() {
+    /* QR nach Android-Vorbild: https://panel.smartys.tech/pair?mac=<ID>&pw=<PW>
+       (Smartphone öffnet den Link → Player im Panel koppeln) */
+    var box = document.getElementById("pair-qr");
+    if (!box || typeof qrcode !== "function") return;
+    var url = PANEL + "/pair?mac=" + encodeURIComponent(state.playerId) +
+              "&pw=" + encodeURIComponent(state.pairingPw);
+    var qr = null, v;
+    for (v = 1; v <= 40; v++) {
+        try {
+            var q = qrcode(v, "M"); /* ECC M */
+            q.addData(url);
+            q.make();
+            qr = q;
+            break;
+        } catch (e) { /* Version zu klein → nächste */ }
+    }
+    if (!qr) { box.innerHTML = ""; return; }
+    try { box.innerHTML = qr.createSvgTag(4, 1, null, null); }
+    catch (e) { box.innerHTML = ""; }
+}
+
 function afterUnlock() {
     var hasProviders = lsGet("providers_json", null);
     if (hasProviders) {
@@ -276,6 +857,7 @@ function afterUnlock() {
     } else {
         document.getElementById("player-id").textContent = state.playerId;
         document.getElementById("pairing-pw").textContent = state.pairingPw;
+        renderPairQr();
         show("view-pairing");
     }
 }
@@ -375,6 +957,7 @@ function doPair() {
         })
         .then(function () { show("view-home"); })
         .catch(function (e) {
+            if (e.message === "SEC") { showUnlock(); return; }
             show("view-pairing");
             document.getElementById("player-id").textContent = state.playerId;
             document.getElementById("pairing-pw").textContent = state.pairingPw;
@@ -555,16 +1138,20 @@ function nowNext(ch) {
 function renderLiveCategories() {
     var el = document.getElementById("live-categories");
     el.innerHTML = "";
+    var prefs = makeCatPrefs("live");
     var all = document.createElement("div");
     all.className = "cat" + (state.selectedLiveCat === null ? " active" : "");
     all.textContent = "Alle Kanäle";
+    all.ondblclick = function () { pickCats("live", state.categories); };
     all.onclick = function () { state.selectedLiveCat = null; renderLiveCategories(); renderLiveChannels(); };
     el.appendChild(all);
-    state.categories.forEach(function (c) {
+    prefs.applyTo(state.categories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedLiveCat === c.category_id ? " active" : "");
-        d.textContent = c.category_name;
+        d.setAttribute("data-cat-id", c.category_id);
+        d.textContent = prefs.labelOf(c);
         d.onclick = function () { state.selectedLiveCat = c.category_id; renderLiveCategories(); renderLiveChannels(); };
+        d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("live", c, 0); };
         el.appendChild(d);
     });
 }
@@ -572,17 +1159,25 @@ function renderLiveCategories() {
 function renderLiveChannels() {
     var el = document.getElementById("live-channels");
     el.innerHTML = "";
-    var shown = state.channels;
+    var prefs = makeChanPrefs();
+    var catPrefs = makeCatPrefs("live");
+    var visibleCatIds = catPrefs.applyTo(state.categories).map(function (c) { return c.category_id; });
+    var shown = prefs.apply(state.channels);
+    shown = shown.filter(function (c) { return !prefs.isHidden(c.stream_id); });
     if (state.selectedLiveCat !== null) shown = shown.filter(function (c) { return c.category_id === state.selectedLiveCat; });
+    else shown = shown.filter(function (c) { return visibleCatIds.indexOf(c.category_id) >= 0; });
     shown.forEach(function (c) {
         var d = document.createElement("div");
         d.className = "ch";
+        d.setAttribute("data-ch-id", c.stream_id);
         var nn = nowNext(c);
         var fav = state.favorites[c.stream_id] ? " ★" : "";
+        var lock = prefs.isLocked(c.stream_id) ? " 🔒" : "";
         var num = c.num ? c.num + "  " : "";
-        d.innerHTML = '<div class="ch-name">' + esc(num + c.name) + fav + '</div>' +
+        d.innerHTML = '<div class="ch-name">' + esc(num + c.name) + fav + lock + '</div>' +
             '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : "Keine EPG-Daten") + '</div>';
         d.onclick = function () { playLive(c); };
+        d.ondblclick = function (ev) { ev.stopPropagation(); openChanMenu(c); };
         el.appendChild(d);
     });
 }
@@ -611,17 +1206,22 @@ function renderMovies() {
     all.textContent = "Alle Filme";
     all.onclick = function () { state.selectedMovieCat = null; renderMovies(); };
     cats.appendChild(all);
-    state.vodCategories.forEach(function (c) {
+    var mprefs = makeCatPrefs("movies");
+    mprefs.applyTo(state.vodCategories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedMovieCat === c.category_id ? " active" : "");
-        d.textContent = c.category_name;
+        d.setAttribute("data-mcat-id", c.category_id);
+        d.textContent = mprefs.labelOf(c);
         d.onclick = function () { state.selectedMovieCat = c.category_id; renderMovies(); };
+        d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("movies", c, 0); };
         cats.appendChild(d);
     });
 
     var q = (document.getElementById("movies-search").value || "").toLowerCase();
+    var visibleCatIds = mprefs.applyTo(state.vodCategories).map(function (c) { return c.category_id; });
     var shown = state.vodMovies;
     if (state.selectedMovieCat !== null) shown = shown.filter(function (m) { return m.category_id === state.selectedMovieCat; });
+    else shown = shown.filter(function (m) { return visibleCatIds.indexOf(m.category_id) >= 0; });
     if (q) shown = shown.filter(function (m) { return (m.name || "").toLowerCase().indexOf(q) >= 0; });
 
     document.getElementById("movies-count").textContent = shown.length + " Filme";
@@ -648,17 +1248,22 @@ function renderSeries() {
     all.textContent = "Alle Serien";
     all.onclick = function () { state.selectedSeriesCat = null; renderSeries(); };
     cats.appendChild(all);
-    state.seriesCategories.forEach(function (c) {
+    var sprefs = makeCatPrefs("series");
+    sprefs.applyTo(state.seriesCategories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedSeriesCat === c.category_id ? " active" : "");
-        d.textContent = c.category_name;
+        d.setAttribute("data-scat-id", c.category_id);
+        d.textContent = sprefs.labelOf(c);
         d.onclick = function () { state.selectedSeriesCat = c.category_id; renderSeries(); };
+        d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("series", c, 0); };
         cats.appendChild(d);
     });
 
     var q = (document.getElementById("series-search").value || "").toLowerCase();
+    var visibleCatIds = sprefs.applyTo(state.seriesCategories).map(function (c) { return c.category_id; });
     var shown = state.seriesShows;
     if (state.selectedSeriesCat !== null) shown = shown.filter(function (s) { return s.category_id === state.selectedSeriesCat; });
+    else shown = shown.filter(function (s) { return visibleCatIds.indexOf(s.category_id) >= 0; });
     if (q) shown = shown.filter(function (s) { return (s.name || "").toLowerCase().indexOf(q) >= 0; });
 
     document.getElementById("series-count").textContent = shown.length + " Serien";
@@ -806,7 +1411,9 @@ function renderEpg() {
     for (var h = 0; h < 24; h++) html += '<span style="width:' + PX_PER_HOUR + 'px">' + ("0" + h).slice(-2) + ':00</span>';
     html += '</div>';
 
+    var epgPrefs = makeChanPrefs();
     state.channels.forEach(function (ch) {
+        if (epgPrefs.isHidden(ch.stream_id)) return;
         var progs = (state.xmltv.byId[ch.epg_channel_id] || []);
         if (progs.length === 0 && !ch.epg_channel_id) {
             var id = state.xmltv.byName[normName(ch.name)];
@@ -832,9 +1439,57 @@ function renderEpg() {
  * ===================================================================== */
 
 function playLive(ch) {
+    var prefs = makeChanPrefs();
+    if (prefs.isLocked(ch.stream_id)) {
+        var needPin = !!(lsGet("pin_hash", null)) && lsGet("pin_enabled", false);
+        if (needPin) {
+            requestPin(ch, function (ok) { if (ok) playLiveNoGate(ch); });
+            return;
+        }
+        document.getElementById("menu-title").textContent = "🔒 FSK-Sperre";
+        var nb = document.getElementById("menu-body");
+        nb.innerHTML = '<div class="menu-note">Dieser Kanal ist per FSK-Sperre gesperrt (PIN nicht festgelegt — in den Einstellungen PIN setzen, um die Sperre zu aktivieren).</div>';
+        document.getElementById("menu-overlay").classList.remove("hidden");
+        return;
+    }
+    playLiveNoGate(ch);
+}
+
+function playLiveNoGate(ch) {
     state.currentPlayback = { url: liveUrl(ch.stream_id), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
     startPlayback();
     markWatched(ch.stream_id);
+}
+
+function requestPin(ch, cb) {
+    document.getElementById("menu-title").textContent = "🔒 " + (ch.name || "Kanal") + " — FSK-Sperre";
+    var nb = document.getElementById("menu-body");
+    nb.innerHTML = '<div class="menu-note">Bitte PIN eingeben:</div>';
+    var row = document.createElement("div");
+    row.className = "menu-row";
+    var inp = document.createElement("input");
+    inp.type = "password";
+    inp.inputMode = "numeric";
+    inp.autocomplete = "off";
+    inp.className = "menu-input";
+    inp.placeholder = "PIN…";
+    var errEl = document.createElement("div");
+    errEl.className = "menu-note err";
+    errEl.textContent = "";
+    var go = menuButton("Entsperren", "gold", function () {
+        verifyPin(inp.value || "", function (ok) {
+            if (ok) { closeMenu(); cb(true); }
+            else { errEl.textContent = "Falsche PIN"; inp.value = ""; }
+        });
+    });
+    var cancel = menuButton("Abbrechen", "", function () { closeMenu(); cb(false); });
+    row.appendChild(inp);
+    row.appendChild(go);
+    row.appendChild(cancel);
+    nb.appendChild(row);
+    nb.appendChild(errEl);
+    document.getElementById("menu-overlay").classList.remove("hidden");
+    try { inp.focus(); } catch (e) {}
 }
 
 function playVod(url, title, key, startPosMs) {
@@ -972,6 +1627,14 @@ function init() {
     ensureIdentity();
 
     document.getElementById("btn-pair").onclick = doPair;
+
+    // v1.1.0: Sicherheits-PW Unlock
+    document.getElementById("btn-unlock").onclick = doUnlock;
+    document.getElementById("btn-unlock-back").onclick = function () { show("view-pairing"); };
+    document.getElementById("unlock-input").addEventListener("keyup", function (e) {
+        if (e.keyCode === 13 || e.keyCode === 14) doUnlock();
+    });
+
     document.getElementById("btn-logout").onclick = function () {
         lsDel("providers_json"); lsDel("token");
         state.providers = []; state.token = null;
@@ -1007,15 +1670,33 @@ function init() {
         t.onclick = function () { activateTab(t.dataset.tab); };
     });
 
-    // webOS-Fernbedienung: Back-Taste (10009/461/27)
+    // webOS-Fernbedienung: Back-Taste (10009/461/27) — Overlay wird zuerst geschlossen
     document.addEventListener("keydown", function (e) {
         var isBack = e.keyCode === 10009 || e.keyCode === 461 || e.keyCode === 27 ||
             (e.key === "Backspace" && state.currentView === "view-player");
         if (isBack) {
+            if (document.getElementById("menu-overlay") && !document.getElementById("menu-overlay").classList.contains("hidden")) {
+                closeMenu(); e.preventDefault(); return;
+            }
+            if (state.currentView === "view-unlock") {
+                // Unlock-View: Back = kein Provider-Zugang → Pairing
+                show("view-pairing");
+                e.preventDefault();
+                return;
+            }
             if (state.currentView === "view-player") { stopPlayback(); show("view-home"); e.preventDefault(); }
             else if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail" || state.currentView === "view-settings") {
                 show("view-home"); e.preventDefault();
             }
+        }
+    });
+
+    // Menu-Taste (LG: 275 / webOS: 10248) → Verwaltuns-Overlay
+    document.addEventListener("keydown", function (e) {
+        if (e.keyCode === 275 || e.keyCode === 10248 || e.key === "ContextMenu") {
+            var ok = false;
+            try { ok = onMenuKey(); } catch (err) { ok = false; }
+            if (ok) e.preventDefault();
         }
     });
 

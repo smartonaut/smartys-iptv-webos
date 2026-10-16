@@ -12,7 +12,8 @@
         <!-- ===================== PIN-GATE ===================== -->
         <section id="view-pin" class="view hidden">
             <div class="pin-lock">🔒</div>
-            <div class="pin-title">PIN eingeben</div>
+            <div id="pin-main-title" class="pin-title">PIN eingeben</div>
+            <div id="pin-main-sub" class="profile-sub hidden"></div>
             <div id="pin-dots" class="pin-dots"></div>
             <div id="pin-err" class="msg error hidden">Falsche PIN</div>
             <div id="pin-pad" class="pin-pad"></div>
@@ -29,11 +30,21 @@
         <section id="view-pairing" class="view">
             <div class="brand">Smartys M3U Player</div>
             <div class="subtitle">Player freischalten</div>
-            <div class="card">
-                <div class="card-label">Deine Player-ID</div>
-                <div id="player-id" class="card-value id">…</div>
-                <div class="card-label">Dein Passwort</div>
-                <div id="pairing-pw" class="card-value pw">…</div>
+            <div class="card pair-card">
+                <div class="pair-col">
+                    <div class="card-label">Deine Player-ID</div>
+                    <div id="player-id" class="card-value id">…</div>
+                </div>
+                <div class="pair-div"></div>
+                <div class="pair-col">
+                    <div class="card-label">Dein Passwort</div>
+                    <div id="pairing-pw" class="card-value pw">…</div>
+                </div>
+                <div class="pair-div"></div>
+                <div class="pair-col pair-qrcol">
+                    <div class="card-label">QR mit dem Handy scannen</div>
+                    <div id="pair-qr" class="qr-box"></div>
+                </div>
             </div>
             <ol class="steps">
                 <li>Gehe auf <b>panel.smartys.tech</b></li>
@@ -42,6 +53,19 @@
             </ol>
             <button id="btn-pair" class="btn-primary">Prüfen — Playlist laden</button>
             <div id="pair-msg" class="msg"></div>
+        </section>
+
+        <!-- =================== SICHERHEITS-PASSWORT (v1.1.0) =================== -->
+        <section id="view-unlock" class="view hidden">
+            <div class="pin-lock">🔐</div>
+            <div class="pin-title">Zeile ist verschlüsselt</div>
+            <div class="profile-sub">Sicherheits-Passwort eingeben, um die Kanäle einzulesen.</div>
+            <div class="unlock-box">
+                <input id="unlock-input" class="search wide" type="password" autocapitalize="off" autocorrect="off" placeholder="Sicherheits-Passwort">
+                <button id="btn-unlock" class="btn-primary">Entschlüsseln</button>
+            </div>
+            <div id="unlock-msg" class="msg"></div>
+            <button id="btn-unlock-back" class="btn-ghost">← Zurück zu Pairing</button>
         </section>
 
         <!-- ===================== LADEN ===================== -->
@@ -146,6 +170,7 @@
                         <span>Kindersicherung</span>
                         <span id="pin-status" class="settings-val"></span>
                         <button id="btn-pin-set" class="btn-ghost">PIN festlegen</button>
+                        <button id="btn-pin-remove" class="btn-ghost hidden">PIN entfernen</button>
                     </div>
                     <div id="pin-form" class="hidden">
                         <input id="pin-input" class="search" type="password" inputmode="numeric" maxlength="6" placeholder="Neue PIN (4–6 Ziffern)">
@@ -175,8 +200,17 @@
                 <div id="player-title" class="player-title"></div>
             </div>
         </section>
+
+        <!-- =================== MENÜ-OVERLAY (v1.1.0) =================== -->
+        <div id="menu-overlay" class="menu-overlay hidden">
+            <div class="menu-card">
+                <div id="menu-title" class="menu-title"></div>
+                <div id="menu-body" class="menu-body"></div>
+            </div>
+        </div>
     </div>
 
+    <script src="js/qr.js"></script>
     <script src="js/hls.min.js"></script>
     <script src="js/app.js"></script>
 </body>
