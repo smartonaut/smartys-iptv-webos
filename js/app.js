@@ -23,7 +23,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.1.0";
+var APP_VERSION = "1.1.2";
 
 var state = {
     playerId: null,
@@ -153,11 +153,16 @@ function secB64ToBytes(b64) {
 }
 function secDeriveKey(password, saltB64, iterations) {
     if (!SEC_WEB_CRYPTO) return Promise.reject(new Error("WebCrypto nicht verfügbar"));
-    var baseKey = crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: secB64ToBytes(saltB64), iterations: iterations, hash: "SHA-256" },
-        baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-}
+    // FIX v1.1.2: importKey liefert EIN PROMISE — muss gekettet werden,
+    // sonst erhält deriveKey ein Promise statt CryptoKey und jeder
+    // Unlock-Versuch schlägt fehl ("Passwort falsch", Passwort korrekt).
+    return crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"])
+        .then(function (baseKey) {
+            return crypto.subtle.deriveKey(
+                { name: "PBKDF2", salt: secB64ToBytes(saltB64), iterations: iterations, hash: "SHA-256" },
+                baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+        });
+    }
 function secDecryptField(key, tokenB64, playerId) {
     if (!tokenB64) return Promise.resolve("");
     var raw;
