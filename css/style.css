@@ -340,3 +340,120 @@ html, body {
 .osd-epg { color: #FFC94D; font-size: 14px; margin-top: 6px; }
 .osd-bar { height: 4px; background: #232C42; border-radius: 2px; margin-top: 10px; }
 .osd-progress { height: 100%; background: #FFC94D; border-radius: 2px; width: 0; }
+
+/* ---------- v1.1.0: Menu-Overlay ( Verwaltung / Sort / Mark / FSK ) ---------- */
+#menu-overlay {
+    position: fixed; inset: 0; z-index: 900;
+    background: rgba(5, 8, 14, 0.72);
+    display: flex; align-items: flex-start; justify-content: center;
+}
+#menu-overlay .menu-card {
+    background: #0F1422; border: 1px solid #222B44;
+    width: min(920px, 92vw); max-height: 90vh;
+    margin-top: 5vh; border-radius: 16px;
+    display: flex; flex-direction: column; overflow: hidden;
+}
+#menu-title {
+    color: #E8EEFC; font-size: 22px; font-weight: bold;
+    padding: 20px 28px 16px; border-bottom: 1px solid #1B2338;
+    background: #111830;
+}
+#menu-body { padding: 20px 28px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.menu-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.menu-btn {
+    background: #1A2238; color: #DCE6F8;
+    font-size: 16px; padding: 12px 20px; border-radius: 10px;
+    cursor: pointer; border: 1px solid #26304C;
+}
+.menu-btn:hover, .menu-btn:focus { background: #232E4E; outline: 2px solid #FFC94D; }
+.menu-btn.danger { background: #3A1A22; color: #FF9AA2; border-color: #58252F; }
+.menu-btn.danger:hover, .menu-btn.danger:focus { background: #4A2029; }
+.menu-btn.gold { background: #2E2712; color: #FFC94D; border-color: #4C421F; }
+.menu-btn.gold:hover, .menu-btn.gold:focus { background: #3A3218; }
+.menu-btn.disabled, .menu-btn:disabled { opacity: 0.4; pointer-events: none; }
+.menu-btn.mini { font-size: 14px; padding: 8px 14px; }
+.menu-topbtns {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    padding: 12px; background: #10141F; border-radius: 10px;
+    border: 1px solid #1B2338; position: sticky; top: 0; z-index: 1;
+}
+.menu-counter { color: #8FA3C8; font-size: 15px; text-align: center; }
+.menu-counter strong, .menu-list strong { color: #FFC94D; }
+.menu-list { overflow-y: auto; max-height: 52vh; display: flex; flex-direction: column; gap: 6px; }
+.menu-item {
+    background: #10141F; color: #DCE6F8; font-size: 16px;
+    padding: 12px 16px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent;
+}
+.menu-item:hover, .menu-item:focus { background: #1A2238; }
+.menu-item.marked { background: #2E2712; border-color: #4C421F; color: #FFC94D; }
+.menu-note { color: #8FA3C8; font-size: 15px; line-height: 24px; }
+.menu-note.err { color: #FF9AA2; }
+.menu-input {
+    background: #0B0E14; color: #E8EEFC;
+    border: 1px solid #2A3554; border-radius: 10px;
+    font-size: 16px; padding: 10px 14px; width: 280px;
+}
+.menu-input:focus { outline: 2px solid #FFC94D; }
+.menu-rename { display: flex; flex-direction: column; gap: 12px; }
+
+/* ---------- v1.1.0: Security-PW Unlock ---------- */
+#view-unlock {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; height: 100%; gap: 18px;
+}
+.unlock-box {
+    background: #10141F; border: 1px solid #222B44; border-radius: 16px;
+    padding: 36px 44px; display: flex; flex-direction: column; gap: 16px; align-items: center;
+    width: min(560px, 80vw);
+}
+.unlock-box h2 { color: #E8EEFC; margin: 0; font-size: 24px; }
+.unlock-box p { color: #8FA3C8; margin: 0; font-size: 15px; text-align: center; }
+.unlock-box input {
+    background: #0B0E14; color: #E8EEFC; border: 1px solid #2A3554; border-radius: 10px;
+    font-size: 18px; padding: 12px 16px; width: 100%; box-sizing: border-box;
+}
+.unlock-box input:focus { outline: 2px solid #FFC94D; }
+.unlock-msg { color: #FF9AA2; font-size: 15px; min-height: 20px; }
+.btn.btn-gold { background: #2E2712; color: #FFC94D; border: 1px solid #4C421F; font-size: 17px; padding: 14px 28px; cursor: pointer; border-radius: 12px; }
+.btn.btn-gold:hover, .btn.btn-gold:focus { background: #3A3218; outline: 2px solid #FFC94D; }
+.btn.ghost { background: transparent; color: #8FA3C8; border: 1px solid #2A3554; font-size: 15px; padding: 10px 20px; cursor: pointer; border-radius: 10px; }
+
+/* ---------- v1.1.0: Pairing 2-Spalten (Player-ID links, Passwort rechts) ---------- */
+.pair-card {
+    display: flex; align-items: stretch; gap: 0;
+    justify-content: center; flex-wrap: wrap; width: min(860px, 100%);
+}
+.pair-col {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 8px 32px; flex: 1; min-width: 280px; text-align: center;
+}
+.pair-div {
+    width: 1px; align-self: stretch; margin: 12px 0;
+    background: #232C42; flex-shrink: 0;
+}
+.qr-box {
+    background: #FFFFFF; border-radius: 12px; padding: 10px;
+    width: 240px; height: 240px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+}
+.qr-box svg { width: 100%; height: 100%; display: block; }
+
+/* ---------- Fokus-Indikator (Fernbedienung) ---------- */
+.cat:focus, .ch:focus, .tab:focus, .menu-item:focus,
+.menu-btn:focus, .episode:focus, .grid-item:focus, .unlock-box input:focus {
+    outline: 3px solid #FFC94D; outline-offset: 1px;
+}
+
+/* ---------- Responsive (kleine webOS-Auflösungen) ---------- */
+@media (max-width: 1280px) {
+    .detail-layout { flex-direction: column; max-width: 100%; }
+    .detail-poster { width: 220px; }
+}
+@media (max-width: 960px) {
+    .pair-col { min-width: 100%; text-align: left; }
+    .pair-div { display: none; }
+    .menu-card { width: 96vw; }
+    .menu-list { max-height: 60vh; }
+}
