@@ -14,6 +14,16 @@
  *  - VOD: ausgeblendete Kategorien unter "Alle" gefiltert (v0.8.6)
  *  - Menu-Taste (keyCode 275 / webOSRemote) = Verwaltung öffnen
  *
+ *  v1.2.0 — Nachziehen auf den Stand von Android v0.8.31 und Desktop 2.0.0:
+ *  - Stillstands-Waechter fuer Live-TV (1-s-Takt, 15 s Anlauf, 3 s Stillstand
+ *    -> Neuverbindung; nie bei VOD, nie bei pausierter Wiedergabe)
+ *  - Puffer/Cache einstellbar (Auto oder 3-60 s), wirkt auf hls.js
+ *  - Programm raster: 6-Stunden-Fenster ab jetzt, Klick startet den Sender
+ *  - Staffel-Schlange: "Staffel abspielen", naechste Folge automatisch,
+ *    Abspann-Hinweis 5 s vor Schluss
+ *  - IMDb-/Filmstarts-Verweis als QR (Fernseher kann keine Links oeffnen)
+ *  - Mehrzeilen-Modus: Kategorien nach Namen zusammengefasst
+ *
  *  Feature-Paritaet zur Android-/Desktop-App:
  *  Pairing, Live-TV, VOD (Movies/Series), EPG-Grid, Catch-up/Timeshift,
  *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
@@ -23,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.1.2";
+var APP_VERSION = "1.2.0";
 
 var state = {
     playerId: null,
@@ -52,6 +62,12 @@ var state = {
     hls: null,
     currentPlayback: null,  // {url, title, kind, channelId}
     osdTimer: null,
+
+    /* v1.2.0 */
+    wd: { active: false, timer: null, lastPos: -1, stillMs: 0, startedAt: 0, reconnects: 0 },
+    queue: [],              // Folgen-Schlange ("Staffel abspielen")
+    queueIdx: -1,
+    creditsShown: false,    // Abspann-Hinweis schon gezeigt?
 };
 
 /* =====================================================================
@@ -291,8 +307,12 @@ function xtream(provider, action, extra) {
 }
 
 /* Stream-URLs (identisch zu CredStore.kt) */
-function liveUrl(streamId) {
-    var p = primaryProvider();
+function providerAt(pi) {
+    var list = state.providers || [];
+    return list[pi] || list[0];
+}
+function liveUrl(streamId, pi) {
+    var p = providerAt(pi);
     return p.server_url.replace(/\/+$/, "") + "/live/" + encodeURIComponent(p.username) + "/" + encodeURIComponent(p.password) + "/" + streamId + ".m3u8";
 }
 function movieUrl(streamId, ext) {
@@ -1009,18 +1029,49 @@ function doPair() {
 function loadAll() {
     show("view-loading");
     document.querySelector("#view-loading .msg").textContent = "Lade Kanäle…";
-    var p = primaryProvider();
-    return xtream(p, "get_live_categories")
-        .then(function (cats) {
-            state.categories = cats || [];
-            var catNames = {};
-            state.categories.forEach(function (c) { catNames[c.category_id] = c.category_name; });
-            return xtream(p, "get_live_streams").then(function (streams) {
-                var all = (streams || []).filter(function (s) { return s.name.indexOf("####") < 0; });
-                all.forEach(function (s) { s.categoryName = catNames[s.category_id] || ""; });
-                all.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
-                state.channels = all;
+
+    /* Mehrzeilen-Modus: alle aktiven Provider abfragen. Gruppen werden nach
+       Namen zusammengefasst (wie Desktop 1.5.39), damit eine Gruppe nicht
+       doppelt in der Seitenleiste steht. Gleiche Sendernamen aus zwei
+       Leitungen erscheinen nur einmal. */
+    var provs = (state.providers && state.providers.length) ? state.providers : [primaryProvider()];
+    var rohCats = [], rohStreams = [];
+    var kette = Promise.resolve();
+    provs.forEach(function (pr, pi) {
+        kette = kette.then(function () {
+            return xtream(pr, "get_live_categories").then(function (cl) {
+                (cl || []).forEach(function (c) { c.__pi = pi; rohCats.push(c); });
+                return xtream(pr, "get_live_streams").then(function (sl) {
+                    (sl || []).forEach(function (st) { st.__pi = pi; rohStreams.push(st); });
+                });
             });
+        });
+    });
+
+    return kette
+        .then(function () {
+            var gesehen = {}, canon = [];
+            rohCats.forEach(function (c) {
+                var key = (c.category_name || "").trim().toLowerCase();
+                if (!key || gesehen[key]) return;
+                gesehen[key] = true;
+                canon.push({ category_id: c.category_id, category_name: c.category_name });
+            });
+            state.categories = canon;
+            var catNames = {};
+            canon.forEach(function (c) { catNames[c.category_id] = c.category_name; });
+
+            var namen = {}, all = [];
+            rohStreams.forEach(function (st) {
+                if ((st.name || "").indexOf("####") >= 0) return;
+                var key = (st.name || "").trim().toLowerCase();
+                if (namen[key]) return;
+                namen[key] = true;
+                st.categoryName = catNames[st.category_id] || "";
+                all.push(st);
+            });
+            all.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
+            state.channels = all;
         })
         .then(function () { return loadVod(); })
         .then(function () { return loadSeries(); })
@@ -1340,6 +1391,8 @@ function openMovieDetail(m) {
         '<button class="btn-primary" id="md-play">' + (canResume ? '▶ Fortsetzen' : '▶ Abspielen') + '</button>' +
         (canResume ? '<button class="btn-ghost" id="md-restart">↺ Von vorne</button>' : '') +
         (m.trailer ? '<button class="btn-ghost" id="md-trailer">▶ Trailer</button>' : '') +
+        '<button class="btn-ghost" id="md-imdb">IMDb</button>' +
+        '<button class="btn-ghost" id="md-fs">Filmstarts</button>' +
         '<button class="btn-ghost" id="md-fav">' + (state.favorites["movie:" + m.stream_id] ? '★ Favorit' : '☆ Favorit') + '</button>' +
         '</div>' +
         '<div class="detail-desc" id="md-desc">Beschreibung wird geladen…</div>' +
@@ -1352,6 +1405,14 @@ function openMovieDetail(m) {
     if (canResume) document.getElementById("md-restart").onclick = function () {
         delete state.resume["movie:" + m.stream_id]; lsSet(profileScope("resume"), state.resume);
         playVod(movieUrl(m.stream_id, m.container_extension || "mp4"), m.name, "vod:movie:" + m.stream_id, 0);
+    };
+    /* Nur Verweise, kein Scraping (filmstarts.de sperrt /suchen/ per robots.txt) */
+    document.getElementById("md-imdb").onclick = function () {
+        var q = encodeURIComponent(m.name + (movieYear(m) ? " " + movieYear(m) : ""));
+        showQrOverlay("IMDb — " + m.name, "https://www.imdb.com/find/?q=" + q);
+    };
+    document.getElementById("md-fs").onclick = function () {
+        showQrOverlay("Filmstarts — " + m.name, "https://www.filmstarts.de/suche/?q=" + encodeURIComponent(m.name));
     };
     if (m.trailer) document.getElementById("md-trailer").onclick = function () {
         window.open("https://www.youtube.com/watch?v=" + m.trailer, "_blank");
@@ -1382,23 +1443,23 @@ function openMovieDetail(m) {
     }
 }
 
-function openSeriesDetail(show) {
+function openSeriesDetail(serie) {
     show("view-series-detail");
     var el = document.getElementById("series-detail");
     el.innerHTML = '<div class="detail-layout">' +
-        '<div class="detail-poster">' + (show.cover ? '<img src="' + esc(show.cover) + '">' : '<div class="poster-empty">📺</div>') + '</div>' +
+        '<div class="detail-poster">' + (serie.cover ? '<img src="' + esc(serie.cover) + '">' : '<div class="poster-empty">📺</div>') + '</div>' +
         '<div class="detail-info">' +
         '<button class="btn-ghost" id="sd-back">← Zurück</button>' +
-        '<div class="detail-title">' + esc(show.name) + '</div>' +
-        (show.genre ? '<div class="detail-meta">' + esc(show.genre) + '</div>' : '') +
-        (show.plot ? '<div class="detail-desc"><p>' + esc(show.plot) + '</p></div>' : '') +
+        '<div class="detail-title">' + esc(serie.name) + '</div>' +
+        (serie.genre ? '<div class="detail-meta">' + esc(serie.genre) + '</div>' : '') +
+        (serie.plot ? '<div class="detail-desc"><p>' + esc(serie.plot) + '</p></div>' : '') +
         '<div id="sd-seasons" class="seasons"></div>' +
         '</div></div>';
 
     document.getElementById("sd-back").onclick = function () { show("view-home"); activateTab("series"); };
 
     var p = primaryProvider();
-    xtream(p, "get_series_info", { series_id: show.series_id }).then(function (info) {
+    xtream(p, "get_series_info", { series_id: serie.series_id }).then(function (info) {
         var episodes = (info && info.episodes) || {};
         var seasonKeys = Object.keys(episodes).sort(function (a, b) { return (parseInt(a) || 0) - (parseInt(b) || 0); });
         var box = document.getElementById("sd-seasons");
@@ -1407,7 +1468,8 @@ function openSeriesDetail(show) {
             var season = document.createElement("div");
             season.className = "season";
             var eps = (episodes[sk] || []).sort(function (a, b) { return (parseInt(a.episode_num) || 999) - (parseInt(b.episode_num) || 999); });
-            season.innerHTML = '<div class="season-title">Staffel ' + sk + '</div>';
+            season.innerHTML = '<div class="season-title"><span>Staffel ' + sk + '</span>' +
+                '<button class="btn-primary small season-play">▶ Staffel abspielen</button></div>';
             eps.forEach(function (ep) {
                 var row = document.createElement("div");
                 row.className = "episode";
@@ -1415,10 +1477,12 @@ function openSeriesDetail(show) {
                     '<span class="ep-title">' + esc(ep.title || ("Episode " + ep.episode_num)) + '</span><span class="ep-play">▶</span>';
                 row.onclick = function () {
                     var ext = ep.container_extension || "mp4";
-                    playVod(seriesUrl(ep.id, ext), (show.name + " S" + sk + "E" + ep.episode_num), "vod:series:" + ep.id, 0);
+                    playVod(seriesUrl(ep.id, ext), (serie.name + " S" + sk + "E" + ep.episode_num), "vod:series:" + ep.id, 0);
                 };
                 season.appendChild(row);
             });
+            var sb = season.querySelector(".season-play");
+            if (sb) sb.onclick = function () { startSeason(serie, sk, eps); };
             box.appendChild(season);
         });
     }).catch(function () {
@@ -1442,9 +1506,22 @@ function renderEpg() {
         return;
     }
 
-    var PX_PER_HOUR = 120;
-    var html = '<div class="epg-timebar" style="width:' + (24 * PX_PER_HOUR) + 'px">';
-    for (var h = 0; h < 24; h++) html += '<span style="width:' + PX_PER_HOUR + 'px">' + ("0" + h).slice(-2) + ':00</span>';
+    /* 6-Stunden-Fenster ab jetzt (wie Desktop 2.0.0), in halben Stunden
+       gerastert, damit die Zeitachse lesbar bleibt. */
+    var PX_PER_HOUR = 220;
+    var FENSTER_H = 6;
+    var jetztD = new Date(now);
+    var startSlot = new Date(now);
+    startSlot.setMinutes(jetztD.getMinutes() < 30 ? 0 : 30, 0, 0);
+    var fensterStart = startSlot.getTime() - 30 * 60000;
+    var fensterEnde = fensterStart + FENSTER_H * 3600000;
+
+    var html = '<div class="epg-timebar" style="width:' + (FENSTER_H * PX_PER_HOUR) + 'px">';
+    for (var h = 0; h < FENSTER_H; h++) {
+        var t = new Date(fensterStart + h * 3600000);
+        html += '<span style="width:' + PX_PER_HOUR + 'px">' +
+            ("0" + t.getHours()).slice(-2) + ':' + ("0" + t.getMinutes()).slice(-2) + '</span>';
+    }
     html += '</div>';
 
     var epgPrefs = makeChanPrefs();
@@ -1457,17 +1534,39 @@ function renderEpg() {
         }
         html += '<div class="epg-row"><div class="epg-chan">' + esc(ch.name) + '</div><div class="epg-progs">';
         progs.forEach(function (pr) {
-            if (pr.stop <= dayStart || pr.start >= dayEnd) return;
-            var offset = Math.max(0, (pr.start - dayStart) / 3600000 * PX_PER_HOUR);
-            var dur = Math.max(30, ((pr.stop - pr.start) / 3600000 * PX_PER_HOUR));
+            if (pr.stop <= fensterStart || pr.start >= fensterEnde) return;
+            var von = Math.max(pr.start, fensterStart), bis = Math.min(pr.stop, fensterEnde);
+            var offset = (von - fensterStart) / 3600000 * PX_PER_HOUR;
+            var dur = Math.max(40, (bis - von) / 3600000 * PX_PER_HOUR);
             var isNow = pr.start <= now && pr.stop > now;
-            html += '<div class="epg-prog' + (isNow ? " now" : "") + '" style="left:' + offset + 'px;width:' + dur + 'px">' +
+            html += '<div class="epg-prog' + (isNow ? " now" : "") + '" data-sid="' + esc(ch.stream_id) + '"' +
+                ' data-pi="' + (ch.__pi || 0) + '"' +
+                ' style="left:' + offset + 'px;width:' + dur + 'px">' +
                 '<div class="epg-prog-time">' + hhmm(pr.start) + '–' + hhmm(pr.stop) + '</div>' +
                 '<div class="epg-prog-title">' + esc(pr.title) + '</div></div>';
         });
         html += '</div></div>';
     });
     el.innerHTML = html;
+
+    /* Klick auf eine Sendung startet den Sender (Desktop 2.0.0). */
+    Array.prototype.forEach.call(el.querySelectorAll(".epg-prog"), function (b) {
+        b.onclick = function () {
+            var sid = b.getAttribute("data-sid");
+            var pi = parseInt(b.getAttribute("data-pi"), 10) || 0;
+            var ch = null;
+            for (var i = 0; i < state.channels.length; i++) {
+                if (String(state.channels[i].stream_id) === String(sid)) { ch = state.channels[i]; break; }
+            }
+            if (ch) playLive(ch);
+        };
+    });
+
+    /* Bildlauf auf die laufende Stunde, damit man nicht suchen muss. */
+    var scroller = el.parentElement;
+    if (scroller) {
+        try { scroller.scrollLeft = Math.max(0, ((now - fensterStart) / 3600000) * PX_PER_HOUR - 260); } catch (e) {}
+    }
 }
 
 /* =====================================================================
@@ -1492,7 +1591,7 @@ function playLive(ch) {
 }
 
 function playLiveNoGate(ch) {
-    state.currentPlayback = { url: liveUrl(ch.stream_id), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
+    state.currentPlayback = { url: liveUrl(ch.stream_id, ch.__pi || 0), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
     startPlayback();
     markWatched(ch.stream_id);
 }
@@ -1534,6 +1633,98 @@ function playVod(url, title, key, startPosMs) {
     markWatched(key);
 }
 
+/* Puffer/Cache (Paritaet zu Desktop AppSettings.cacheSeconds: Standard 3 s,
+   0 = Automatik). Auf einem Fernseher entscheidet der Puffer zwischen
+   ruhigem Bild und Ruckeln — deshalb einstellbar statt fest verdrahtet. */
+function cacheSeconds() {
+    var v = lsGet("cache_seconds", "3");
+    if (v === "auto" || v === 0 || v === "0" || v === null) return 0;
+    var n = parseInt(v, 10);
+    if (isNaN(n)) return 3;
+    return Math.max(0, Math.min(60, n));
+}
+
+function hlsConfig() {
+    var cs = cacheSeconds();
+    return {
+        enableWorker: true,
+        lowLatencyMode: false,
+        backBufferLength: 30,
+        maxBufferSize: (cs > 0 ? Math.max(12, cs * 4) : 60) * 1000 * 1000,
+        maxBufferLength: cs > 0 ? Math.max(6, Math.round(cs * 1.5)) : 30,
+        maxMaxBufferLength: cs > 0 ? Math.max(12, cs * 3) : 60,
+        liveSyncDurationCount: cs > 0 ? Math.max(2, Math.min(6, Math.round(cs / 2) + 2)) : 3,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingMaxRetry: 4,
+        fragLoadingMaxRetry: 6
+    };
+}
+
+/* ---------------------------------------------------------------------
+ *  Stillstands-Waechter (Paritaet zu Android RobustLivePlayer und dem
+ *  Desktop-Player, dort 3 s).
+ *
+ *  Bei einem haengenden Stream kommt KEIN Player-Fehler — der Decoder
+ *  steht einfach, das Bild friert ein. Ohne diesen Waechter bleibt das so,
+ *  bis der Nutzer den Sender wechselt. Der Waechter prueft im Sekundentakt,
+ *  ob die Wiedergabeposition weiterlaeuft.
+ * ------------------------------------------------------------------- */
+
+function startWatchdog() {
+    stopWatchdog();
+    state.wd.active = true;
+    state.wd.lastPos = -1;
+    state.wd.stillMs = 0;
+    state.wd.startedAt = Date.now();
+    state.wd.timer = setInterval(wdTick, 1000);
+}
+
+function stopWatchdog() {
+    state.wd.active = false;
+    if (state.wd.timer) { clearInterval(state.wd.timer); state.wd.timer = null; }
+}
+
+function wdTick() {
+    var cb = state.currentPlayback;
+    if (!state.wd.active || !cb || cb.kind !== "live") { stopWatchdog(); return; }
+    var video = document.getElementById("video");
+    if (!video || video.paused || video.ended) { state.wd.stillMs = 0; return; }
+    /* Anlaufphase: der Puffer muss sich erst fuellen. */
+    if (Date.now() - state.wd.startedAt < 15000) { state.wd.lastPos = video.currentTime; return; }
+
+    var pos = video.currentTime;
+    if (pos === state.wd.lastPos && pos > 0) {
+        state.wd.stillMs += 1000;
+        if (state.wd.stillMs >= 3000) {
+            state.wd.stillMs = 0;
+            wdReconnect();
+        }
+    } else {
+        state.wd.stillMs = 0;
+        state.wd.lastPos = pos;
+    }
+}
+
+function wdReconnect() {
+    var cb = state.currentPlayback;
+    if (!cb) return;
+    state.wd.reconnects++;
+    state.wd.startedAt = Date.now();
+    var video = document.getElementById("video");
+    if (state.hls) {
+        try { state.hls.destroy(); } catch (e) {}
+        state.hls = null;
+    }
+    var hls = new Hls(hlsConfig());
+    state.hls = hls;
+    hls.loadSource(cb.url);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () {}); });
+    hls.on(Hls.Events.ERROR, function (evt, data) {
+        if (data && data.fatal && cb.kind === "live") { try { hls.recoverMediaError(); } catch (e) {} }
+    });
+}
+
 function startPlayback() {
     var cb = state.currentPlayback;
     show("view-player");
@@ -1550,7 +1741,7 @@ function startPlayback() {
     }
 
     if (window.Hls && Hls.isSupported()) {
-        var hls = new Hls({ liveSyncDurationCount: 3, enableWorker: true });
+        var hls = new Hls(hlsConfig());
         state.hls = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
@@ -1576,14 +1767,25 @@ function startPlayback() {
                 state.resume[cb.channelId] = Math.floor(video.currentTime * 1000);
                 lsSet(profileScope("resume"), state.resume);
             }
+            /* Abspann-Rueckfrage: 5 s vor Schluss fragen, statt stumm zur
+               naechsten Folge zu springen. Zurueck-Taste bricht ab. */
+            if (state.queue.length > 0 && state.queueIdx + 1 < state.queue.length &&
+                video.duration > 60 && (video.duration - video.currentTime) <= 5 &&
+                !state.creditsShown) {
+                state.creditsShown = true;
+                showCreditsHint();
+            }
         };
         video.onended = function () {
             delete state.resume[cb.channelId];
             lsSet(profileScope("resume"), state.resume);
+            playNextInQueue();
         };
     }
 
     showOsd();
+    state.creditsShown = false;
+    if (cb.kind === "live") startWatchdog(); else stopWatchdog();
 }
 
 function showOsd() {
@@ -1596,6 +1798,108 @@ function showOsd() {
     document.getElementById("osd-epg").innerHTML = nn && nn.now ? epgLine(nn.now, nn.next) : "";
     clearTimeout(state.osdTimer);
     state.osdTimer = setTimeout(function () { osd.classList.add("hidden"); }, 5000);
+}
+
+/* ---------------------------------------------------------------------
+ *  Staffel-Schlange (Paritaet zu Desktop "Staffel laden")
+ *  Der Fernseher hat keinen Offline-Speicher — statt herunterzuladen wird
+ *  die Staffel als Schlange abgespielt: eine Folge endet, die naechste
+ *  startet. Bereits zu Ende gesehene Folgen werden uebersprungen.
+ * ------------------------------------------------------------------- */
+
+function startSeason(show, seasonKey, episodes) {
+    var liste = (episodes || []).slice().sort(function (a, b) {
+        return (parseInt(a.episode_num) || 999) - (parseInt(b.episode_num) || 999);
+    });
+    if (liste.length === 0) return;
+    state.queue = liste.map(function (ep) {
+        return {
+            id: ep.id,
+            ext: ep.container_extension || "mp4",
+            num: ep.episode_num,
+            season: seasonKey,
+            title: show.name + " S" + seasonKey + "E" + (ep.episode_num || "?")
+        };
+    });
+    /* Erste noch nicht zu Ende gesehene Folge */
+    var start = 0;
+    for (var i = 0; i < state.queue.length; i++) {
+        var item = state.queue[i];
+        var gesehen = state.resume["vod:series:" + item.id] || 0;
+        if (gesehen < 60000) { start = i; break; }
+    }
+    state.queueIdx = start;
+    playQueueItem();
+}
+
+function playQueueItem() {
+    var item = state.queue[state.queueIdx];
+    if (!item) { state.queue = []; state.queueIdx = -1; show("view-home"); return; }
+    var pos = state.resume["vod:series:" + item.id] || 0;
+    if (pos < 30000) pos = 0;
+    playVod(seriesUrl(item.id, item.ext), item.title, "vod:series:" + item.id, pos);
+}
+
+function playNextInQueue() {
+    if (state.queue.length === 0 || state.queueIdx + 1 >= state.queue.length) {
+        state.queue = [];
+        state.queueIdx = -1;
+        return;
+    }
+    state.queueIdx++;
+    playQueueItem();
+}
+
+function showCreditsHint() {
+    var hint = document.getElementById("credits-hint");
+    if (!hint) {
+        hint = document.createElement("div");
+        hint.id = "credits-hint";
+        hint.className = "credits-hint";
+        document.getElementById("view-player").appendChild(hint);
+    }
+    var item = state.queue[state.queueIdx + 1];
+    hint.innerHTML = 'Naechste Folge: <b>' + esc(item ? item.title : "") + '</b><br>' +
+        '<span class="credits-sub">Zurueck-Taste bricht ab</span>';
+    hint.classList.remove("hidden");
+    setTimeout(function () { hint.classList.add("hidden"); }, 5000);
+}
+
+/* ---------------------------------------------------------------------
+ *  QR-Overlay: der Fernseher kann keine Links oeffnen. Verweise auf
+ *  IMDb / Filmstarts werden als QR-Code gezeigt und mit dem Handy gescannt.
+ * ------------------------------------------------------------------- */
+
+function showQrOverlay(titel, url) {
+    document.getElementById("menu-title").textContent = titel;
+    var body = document.getElementById("menu-body");
+    body.innerHTML = '<div class="qr-box menu-qr" id="menu-qr-box"></div>' +
+        '<div class="menu-note">' + esc(url) + '</div>';
+    document.getElementById("menu-overlay").classList.remove("hidden");
+    var box = document.getElementById("menu-qr-box");
+    if (typeof qrcode !== "function") { box.textContent = url; return; }
+    for (var v = 1; v <= 40; v++) {
+        try {
+            var q = qrcode(v, "M");
+            q.addData(url); q.make();
+            var n = q.getModuleCount(), cell = 5, tbl = document.createElement("table");
+            tbl.style.borderCollapse = "collapse";
+            for (var r2 = 0; r2 < n; r2++) {
+                var tr = document.createElement("tr");
+                for (var c = 0; c < n; c++) {
+                    var td = document.createElement("td");
+                    td.style.width = cell + "px"; td.style.height = cell + "px";
+                    td.style.border = "none";
+                    td.style.background = q.isDark(r2, c) ? "#0B0E14" : "#FFFFFF";
+                    tr.appendChild(td);
+                }
+                tbl.appendChild(tr);
+            }
+            box.innerHTML = ""; box.appendChild(tbl);
+            return;
+        } catch (e) { /* naechste Version */ }
+    }
+    box.textContent = url;
 }
 
 function markWatched(id) {
@@ -1642,6 +1946,27 @@ function renderSettings() {
     document.getElementById("pin-msg").textContent = "";
     document.getElementById("pin-input").value = "";
     document.getElementById("pin-confirm").value = "";
+
+    /* v1.2.0: Puffer, Wiedergabe-Zustand, Über */
+    var cs = cacheSeconds();
+    document.getElementById("cache-status").textContent = cs === 0 ? "Automatik" : cs + " s";
+    document.getElementById("wd-status").textContent =
+        "Stillstands-Wächter aktiv · " + state.wd.reconnects + "× neu verbunden";
+    var prof = state.activeProfile || "default";
+    document.getElementById("about-status").textContent =
+        "Smartys Player " + APP_VERSION + " (webOS) · Profil " + prof;
+}
+
+/* Puffer durchschalten: Automatik -> 3 -> 5 -> 8 -> 12 -> 20 -> 30 -> Automatik */
+var CACHE_STUFEN = ["auto", "3", "5", "8", "12", "20", "30"];
+
+function cacheWeiter() {
+    var cur = lsGet("cache_seconds", "3");
+    if (cur === 0) cur = "auto";
+    var i = CACHE_STUFEN.indexOf(String(cur));
+    i = (i + 1) % CACHE_STUFEN.length;
+    lsSet("cache_seconds", CACHE_STUFEN[i]);
+    renderSettings();
 }
 
 /* =====================================================================
@@ -1683,6 +2008,8 @@ function init() {
     document.getElementById("btn-settings").onclick = renderSettings;
     document.getElementById("btn-settings-back").onclick = function () { show("view-home"); };
     document.getElementById("btn-profile").onclick = function () { show("view-profiles"); renderProfiles(); };
+
+    document.getElementById("btn-cache").onclick = cacheWeiter;
 
     document.getElementById("btn-pin-set").onclick = function () {
         document.getElementById("pin-form").classList.toggle("hidden");
@@ -1748,6 +2075,12 @@ function init() {
 }
 
 function stopPlayback() {
+    stopWatchdog();
+    state.queue = [];
+    state.queueIdx = -1;
+    state.creditsShown = false;
+    var hint = document.getElementById("credits-hint");
+    if (hint) hint.classList.add("hidden");
     if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
     var video = document.getElementById("video");
     video.pause();
