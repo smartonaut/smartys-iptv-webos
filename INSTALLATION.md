@@ -5,9 +5,10 @@ Voraussetzungen
 ---------------
 - LG TV mit webOS (TV ist ~1 Jahr alt → webOS 24/25; die App nutzt
   abwärtskompatible APIs, läuft also auch auf älteren webOS-Versionen)
-- Der TV und der Rechner (Raider, 192.168.1.238) müssen im selben Netz hängen
-- Die App-Datei: com.smartys.iptv_1.1.0_all.ipk
-  liegt auf dem Raider unter: /home/smarty/Projekte/Smartys Player/webOS/
+- Der TV und dieser Rechner müssen im selben Netz hängen
+- Die App-Datei: **com.smartys.iptv_1.2.0_all.ipk**
+  liegt unter ~/Projekte/Smartys Player/webOS/ (mit ./build_ipk.sh neu baubar)
+  oder als Download: https://github.com/smartonaut/smartys-iptv-webos/releases/latest
 
 
 Schritt 1 — LG Developer Mode einschalten (einmalig)
@@ -49,8 +50,9 @@ Es gibt zwei Wege. Weg A (über das Netz, empfohlen) ist der schnellste.
 
 WEG A — über das Netz vom Raider aus (empfohlen)
 ------------------------------------------------
-Auf dem Raider (dieser Rechner) ist die ares-cli schon installiert
-(unter ~/Projekte/Smartys Player/webOS/node_modules/.bin/).
+Auf diesem Rechner liegt die ares-cli bereits im Projekt
+(~/Projekte/Smartys Player/webOS/node_modules/.bin/, geprüft: Version 2.4.0),
+aufgerufen wird sie über npx.
 
 Zuerst den TV einmalig als Gerät registrieren:
 
@@ -61,7 +63,7 @@ Zuerst den TV einmalig als Gerät registrieren:
 
 Danach die App installieren:
 
-    npx ares-install --device <TV-IP> com.smartys.iptv_1.1.0_all.ipk
+    npx ares-install --device <TV-IP> com.smartys.iptv_1.2.0_all.ipk
 
 Fertig. Die App erscheint nach ein paar Sekunden auf dem Home-Bildschirm
 unter dem Namen "Smartys M3U Player".
@@ -76,7 +78,7 @@ WEG B — über die Developer-Mode-App per Web-Server
 2. In der App den Punkt "Web Server" / "Upload" anklicken — die App zeigt dann
    eine Adresse im Browser an, z. B. http://<TV-IP>:80  (oder einen Link).
 3. Diese Adresse am Computer im Browser öffnen.
-4. Dort die Datei com.smartys.iptv_1.1.0_all.ipk hochladen.
+4. Dort die Datei com.smartys.iptv_1.2.0_all.ipk hochladen.
 5. Die App wird direkt installiert und erscheint auf dem Home-Bildschirm.
 
 WEG C — über USB-Stick (wenn kein Netz zwischen Rechner und TV)
@@ -114,9 +116,44 @@ Hinweise
   (panel.smartys.tech). Einmal gepairt, gelten die Zugangsdaten wie überall.
 - Sollte ein Kanal schwarz bleiben: Die App nutzt hls.js. Bei älteren webOS-
   Versionen greift automatisch natives HLS (Safari/WebKit).
+- Welche Version installiert ist, steht in der App unter Einstellungen →
+  Über (z. B. „Smartys Player 1.2.0 (webOS)").
 - Für den Freund-TV ist WEG C (USB-Stick) der einfachste Weg: .ipk vom
   Raider herunterladen (oder von smartys.tech), auf einen FAT32/NTFS-Stick
   kopieren, TV stecken und in der Developer-Mode-App installieren.
+
+
+v1.2.0 — Parität mit Android v0.8.31 und Desktop 2.0.0
+------------------------------------------------------
+- **Stillstands-Wächter für Live-TV**: prüft im Sekundentakt, ob die
+  Wiedergabeposition weiterläuft, und verbindet nach 3 s Stillstand neu.
+  15 s Anlaufphase (sonst Endlosschleife beim Puffern), nie bei VOD, nie
+  bei pausierter Wiedergabe.
+- **Puffer einstellbar** (Einstellungen → „Puffer ändern"): Automatik oder
+  3/5/8/12/20/30 s. Wirkt auf die Pufferstrategie von hls.js.
+- **Programmraster**: 6-Stunden-Fenster ab jetzt statt 24 Stunden,
+  laufende Sendung hervorgehoben, Klick auf eine Sendung startet den Sender,
+  Bildlauf springt auf die aktuelle Stunde.
+- **Staffel abspielen**: Folgeschlange je Staffel, überspringt bereits zu
+  Ende gesehene Folgen, Abspann-Hinweis 5 s vor Schluss (Zurück bricht ab).
+- **IMDb- und Filmstarts-Verweis** im Film-Detail als QR-Code — ein Fernseher
+  öffnet keine Links.
+- **Mehrzeilen-Modus**: Gruppen aller aktiven Leitungen werden nach Namen
+  zusammengefasst, gleiche Sendernamen erscheinen nur einmal.
+- **Logo und Fokus**: aktuelles Player-Logo als App-Icon und in der App;
+  goldene Fokusrahmen für die Fernbedienung.
+- **Behoben**: die Serien-Detailansicht ließ sich seit 1.1.0 nie öffnen
+  (Parameter `show` überdeckte die globale Funktion `show()`).
+- **Weggelassen und warum**: 36 Sprachen (Sprache steht im Gerät), Aufnahme
+  (kein beschreibbarer Speicher für Live-Mitschnitte), Offline-Downloads.
+
+### Paket selbst bauen
+    cd ~/Projekte/Smartys Player/webOS
+    ./build_ipk.sh
+Erzeugt com.smartys.iptv_<version>_all.ipk ohne ares-cli (ar-Archiv mit
+debian-binary, control.tar.gz, data.tar.gz). Prüfen:
+    ar t com.smartys.iptv_1.2.0_all.ipk          # genau drei Einträge
+    tar tzf data.tar.gz | head                  # muss mit usr/ beginnen
 
 
 v1.1.0 — Parität mit Android v0.8.x
