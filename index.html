@@ -28,7 +28,8 @@
 
         <!-- ===================== PAIRING ===================== -->
         <section id="view-pairing" class="view">
-            <div class="brand">Smartys M3U Player</div>
+            <img src="img/logo.png" class="brand-logo" alt="Smartys">
+            <div class="brand">Smartys Player</div>
             <div class="subtitle">Player freischalten</div>
             <div class="card pair-card">
                 <div class="pair-col">
@@ -76,7 +77,7 @@
         <!-- ===================== HAUPT-NAVIGATION (Tabs) ===================== -->
         <section id="view-home" class="view hidden">
             <div class="topbar">
-                <div class="topbar-title">Smartys M3U Player</div>
+                <div class="topbar-brand"><img src="img/logo.png" class="topbar-logo" alt=""><span class="topbar-title">Smartys Player</span></div>
                 <div class="tabs" id="main-tabs">
                     <button class="tab active" data-tab="live">Live-TV</button>
                     <button class="tab" data-tab="movies">Filme</button>
@@ -179,6 +180,19 @@
                         <div id="pin-msg" class="msg"></div>
                     </div>
                     <div class="settings-row">
+                        <span>Puffer</span>
+                        <span id="cache-status" class="settings-val"></span>
+                        <button id="btn-cache" class="btn-ghost">Puffer ändern</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Wiedergabe</span>
+                        <span id="wd-status" class="settings-val"></span>
+                    </div>
+                    <div class="settings-row">
+                        <span>Über</span>
+                        <span id="about-status" class="settings-val"></span>
+                    </div>
+                    <div class="settings-row">
                         <span>Abmelden</span>
                         <button id="btn-logout" class="btn-ghost danger">Abmelden</button>
                     </div>
@@ -194,6 +208,7 @@
                 <div id="osd-epg" class="osd-epg"></div>
                 <div id="osd-bar" class="osd-bar"><div id="osd-progress" class="osd-progress"></div></div>
             </div>
+            <div id="credits-hint" class="credits-hint hidden"></div>
             <div class="player-topbar">
                 <button id="btn-back" class="btn-ghost">← Zurück</button>
                 <div id="player-title" class="player-title"></div>

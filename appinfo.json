@@ -1,10 +1,10 @@
 {
   "id": "com.smartys.iptv",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "vendor": "Smartys",
   "type": "web",
   "main": "index.html",
-  "title": "Smartys M3U Player",
+  "title": "Smartys Player",
   "icon": "icon.png",
   "largeIcon": "icon-large.png",
   "iconColor": "#0B0E14",

@@ -462,3 +462,64 @@ html, body {
     .menu-card { width: 96vw; }
     .menu-list { max-height: 60vh; }
 }
+
+/* =====================================================================
+ *  v1.2.0 — Logo, Zehn-Fuß-Bedienung, Abspann-Hinweis
+ * ===================================================================== */
+
+.brand-logo {
+    width: 128px; height: 128px;
+    display: block; margin: 0 auto 14px auto;
+    border-radius: 28px;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+
+.topbar-brand { display: flex; align-items: center; gap: 12px; }
+.topbar-logo { width: 40px; height: 40px; border-radius: 10px; display: block; }
+
+.season-title {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+}
+.season-title .season-play { flex: 0 0 auto; }
+
+/* Abspann-Hinweis: 5 s vor Schluss, Zurück-Taste bricht ab */
+.credits-hint {
+    position: absolute; right: 48px; bottom: 132px;
+    background: rgba(11, 14, 20, 0.92);
+    border: 1px solid #FFC94D;
+    border-radius: 14px;
+    padding: 18px 26px;
+    color: #E8EEFC;
+    font-size: 22px;
+    text-align: right;
+    max-width: 620px;
+    z-index: 40;
+}
+.credits-hint b { color: #FFC94D; }
+.credits-hint .credits-sub { color: #8FA3C8; font-size: 16px; }
+
+/* QR im Overlay (IMDb / Filmstarts) */
+.menu-qr { background: #FFFFFF; padding: 12px; border-radius: 10px; display: inline-block; }
+
+/* Fernbedienung: Fokus muss auf drei Metern Abstand eindeutig sein */
+button:focus, .episode:focus, .epg-prog:focus, .card:focus,
+.channel:focus, .movie:focus, .profile:focus, .sidebar-item:focus,
+.tab:focus, input:focus, select:focus {
+    outline: 3px solid #FFC94D;
+    outline-offset: 3px;
+    border-radius: 10px;
+}
+button:focus { background-color: #1B2338; }
+.btn-primary:focus { background-color: #FFD873; }
+
+/* Ruhigerer Grundton, damit das Gold des Logos führt */
+body {
+    background:
+        radial-gradient(1200px 700px at 50% -10%, #141B2E 0%, #0B0E14 55%, #080A10 100%) fixed;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0B0E14; }
+::-webkit-scrollbar-thumb { background: #232C42; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #33405E; }
