@@ -1,5 +1,13 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.2.1 — 29.10.2026
+
+**Stabile Player-ID (PLAYER-IDENTITY.md v1).** Neue Installationen leiten die
+Player-ID deterministisch aus gerätestabilen Merkmalen ab (`nduid|model`,
+SHA-256) statt sie zu würfeln; eine bereits gespeicherte ID bleibt
+unangetastet. Hintergrund: die Panel-Line ist per AAD an die Player-ID
+gebunden — eine verlorene ID bedeutet Neu-Einrichtung beim Nutzer.
+
 ## 1.2.0 — 27.10.2026
 
 Nachgezogen auf den Stand von Android v0.8.31 und Desktop 2.0.0.
