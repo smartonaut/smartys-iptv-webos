@@ -92,34 +92,27 @@ function loadProfileState() {
 }
 
 /* =====================================================================
- *  Identität (Player-ID + Pairing-PW, wie Android)
+ *  Identität: stabile Player-ID (js/identity.js, PLAYER-IDENTITY.md)
+ *  - vorhandene localStorage-ID bleibt unangetastet
+ *  - sonst: Spiegel → Ableitung aus nduid+Modell → Zufall
+ *  - EINMAL pro App-Start: Guard stellt sicher, dass parallele Aufrufe
+ *    sich dasselbe Promise teilen (die Plattform-APIs sind asynchron —
+ *    ohne Guard könnten zwei Initialisierungen zwei IDs erzeugen)
  * ===================================================================== */
 
-function randomBytes(n) {
-    var b = new Uint8Array(n);
-    if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
-    else for (var i = 0; i < n; i++) b[i] = Math.floor(Math.random() * 256);
-    return b;
-}
-function genPlayerId() {
-    var b = randomBytes(6);
-    b[0] = (b[0] & 0xFE) | 0x02;
-    var p = [];
-    for (var i = 0; i < 6; i++) p.push(("0" + b[i].toString(16).toUpperCase()).slice(-2));
-    return p.join(":");
-}
-function genPairingPw() {
-    var CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-    var b = randomBytes(12), out = "";
-    for (var i = 0; i < 12; i++) out += CHARS[((b[i] % CHARS.length) + CHARS.length) % CHARS.length];
-    return out;
-}
+var identityPromise = null;
+
 function ensureIdentity() {
-    var id = localStorage.getItem("player_id");
-    var pw = localStorage.getItem("pairing_pw");
-    if (!id) { id = genPlayerId(); localStorage.setItem("player_id", id); }
-    if (!pw) { pw = genPairingPw(); localStorage.setItem("pairing_pw", pw); }
-    state.playerId = id; state.pairingPw = pw;
+    if (!identityPromise) {
+        identityPromise = SmartysIdentity.resolveIdentity({
+            get: function (k) { return localStorage.getItem(k); },
+            set: function (k, v) { localStorage.setItem(k, v); }
+        }).then(function (res) {
+            state.playerId = res.playerId;
+            state.pairingPw = res.pairingPw;
+        });
+    }
+    return identityPromise;
 }
 
 /* =====================================================================
@@ -266,6 +259,11 @@ function showUnlock() {
 }
 
 function doUnlock() {
+    // Entschlüsselung bindet an die Player-ID (AAD) — erst warten, bis sie feststeht
+    ensureIdentity().then(_doUnlock);
+}
+
+function _doUnlock() {
     var pw = document.getElementById("unlock-input").value;
     if (!pw) return;
     document.getElementById("unlock-msg").textContent = "Entschlüssele…";
@@ -837,7 +835,8 @@ function onMenuKey() {
  * ===================================================================== */
 
 function startFlow() {
-    ensureIdentity();
+    /* Identität steht bereits fest — init() lässt startFlow erst nach
+     * ensureIdentity() laufen; die Pairing-Anzeige braucht state.playerId. */
     ensureDefaultProfile();
 
     if (pinEnabled()) {
@@ -1002,6 +1001,11 @@ function renderProfiles() {
  * ===================================================================== */
 
 function doPair() {
+    // Identität kann (Neuinstallation) noch asynchron in Ermittlung sein
+    ensureIdentity().then(_doPair);
+}
+
+function _doPair() {
     setPairMsg("Verbinde mit panel.smartys.tech…");
     show("view-loading");
     pair()
@@ -1985,7 +1989,10 @@ function htmlDecode(s) {
  * ===================================================================== */
 
 function init() {
-    ensureIdentity();
+    /* Identität EINMAL asynchron ermitteln (Plattform-APIs) — der komplette
+     * App-Start (startFlow und damit alle Views) hängt daran, damit Pairing-
+     * Anzeige/QR und die AAD-gebundene Entschlüsselung nie eine leere ID sehen. */
+    ensureIdentity().then(startFlow);
 
     document.getElementById("btn-pair").onclick = doPair;
 
@@ -2071,7 +2078,7 @@ function init() {
         }
     });
 
-    startFlow();
+    /* startFlow() läuft oben über ensureIdentity().then(startFlow) */
 }
 
 function stopPlayback() {
