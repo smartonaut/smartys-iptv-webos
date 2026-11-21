@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.12";
+var APP_VERSION = "1.2.16";
 
 var state = {
     playerId: null,
@@ -294,7 +294,18 @@ function fetchTmdbMovie(tmdbId) {
  *  Xtream API
  * ===================================================================== */
 
-function primaryProvider() { return state.providers[0]; }
+/* Welche Leitung ist aktiv? Nur diese wird geladen. Umgeschaltet wird in
+   den Einstellungen; erst dann wird die andere Leitung nachgeladen. */
+function activeLineIdx() {
+    var list = state.providers || [];
+    var i = parseInt(lsGet("active_line", 0), 10);
+    if (isNaN(i) || i < 0 || i >= list.length) i = 0;
+    return i;
+}
+function primaryProvider() {
+    var list = state.providers || [];
+    return list[activeLineIdx()] || list[0];
+}
 
 function xtream(provider, action, extra) {
     var url = (provider.server_url || "").replace(/\/+$/, "") + "/player_api.php?username=" +
@@ -599,6 +610,12 @@ function openCatMenu(scope, cat, mode) {
     menuState.scope = scope;
     menuState.cat = cat;
     menuState.mode = mode || 0;
+    /* openOverlayRaw() fehlte hier. renderCatMenuMode() baut das Menue nur
+       in #menu-body - das Overlay blieb display:none, alle Buttons hatten
+       width/height 0 und waren damit nicht fokussierbar. Aufgehen konnte
+       das Menue nur, wenn pickCats() vorher das Overlay geoeffnet hatte;
+       "Nach oben/unten" war per Fernbedienung unerreichbar. */
+    openOverlayRaw("Kategorie verwalten", scope);
     renderCatMenuMode();
 }
 
@@ -610,6 +627,11 @@ function renderCatMenuMode() {
     var cats = scope === "live" ? state.categories : (scope === "movies" ? state.vodCategories : state.seriesCategories);
     var body = document.getElementById("menu-body");
     body.innerHTML = "";
+    var titelEl = document.getElementById("menu-title");
+    if (titelEl) {
+        titelEl.textContent = menuState.mode === 2 ? "Kategorie umbenennen"
+            : (menuState.mode === 1 ? "Mehrere markieren" : "Kategorie verwalten");
+    }
 
     if (menuState.mode === 0) {
         var r = function (c) {
@@ -1072,7 +1094,12 @@ function loadAll() {
        Namen zusammengefasst (wie Desktop 1.5.39), damit eine Gruppe nicht
        doppelt in der Seitenleiste steht. Gleiche Sendernamen aus zwei
        Leitungen erscheinen nur einmal. */
-    var provs = (state.providers && state.providers.length) ? state.providers : [primaryProvider()];
+    /* Nur die AKTIVE Leitung laden. Vorher liefen alle im Panel
+       hinterlegten Leitungen durch - bei vier Leitungen mit je ~21.000
+       Sendern waren das 62 s Ladezeit und ein Vielfaches an Speicher,
+       den der Fernseher nicht hat. Die aktive Leitung ist die erste
+       aktive in state.providers (siehe primaryProvider). */
+    var provs = [primaryProvider()];
     var msgEl = document.querySelector("#view-loading .msg");
     var fertig = 0;
     /* Sequenziell, aber jede Leitung wird SOFORT eingearbeitet:
@@ -1106,7 +1133,11 @@ function loadAll() {
                     all.push(st);
                 });
                 fertig++;
-                if (msgEl) msgEl.textContent = "Lade Kanäle… (" + fertig + " von " + provs.length + " Leitungen)";
+                if (msgEl) {
+                    msgEl.textContent = provs.length > 1
+                        ? "Lade Kanäle… (" + fertig + " von " + provs.length + " Leitungen)"
+                        : "Lade Kanäle… " + all.length + " Sender";
+                }
             });
         });
     }
@@ -2070,6 +2101,22 @@ function renderSettings() {
     var prof = state.activeProfile || "default";
     document.getElementById("about-status").textContent =
         "Smartys Player " + APP_VERSION + " (webOS) · Profil " + prof;
+
+    /* Leitung: nur die aktive wird geladen */
+    var provs = state.providers || [];
+    var li = activeLineIdx();
+    var lineEl = document.getElementById("line-status");
+    var lineBtn = document.getElementById("btn-line");
+    if (lineEl) {
+        if (provs.length <= 1) {
+            lineEl.textContent = provs.length ? (provs[0].label || provs[0].username) : "keine";
+            if (lineBtn) lineBtn.classList.add("hidden");
+        } else {
+            var p0 = provs[li] || {};
+            lineEl.textContent = (p0.label || p0.username || "?") + "  (" + (li + 1) + " von " + provs.length + ")";
+            if (lineBtn) lineBtn.classList.remove("hidden");
+        }
+    }
 }
 
 /* Puffer durchschalten: Automatik -> 3 -> 5 -> 8 -> 12 -> 20 -> 30 -> Automatik */
@@ -2125,6 +2172,16 @@ function init() {
     };
     document.getElementById("btn-settings").onclick = renderSettings;
     document.getElementById("btn-settings-back").onclick = function () { show("view-home"); };
+    var btnLine = document.getElementById("btn-line");
+    if (btnLine) {
+        btnLine.onclick = function () {
+            var provs = state.providers || [];
+            if (provs.length < 2) return;
+            lsSet("active_line", (activeLineIdx() + 1) % provs.length);
+            renderSettings();
+            loadAll();     /* erst jetzt wird die andere Leitung geladen */
+        };
+    }
     document.getElementById("btn-profile").onclick = function () { show("view-profiles"); renderProfiles(); };
 
     document.getElementById("btn-cache").onclick = cacheWeiter;
@@ -2329,6 +2386,21 @@ function init() {
         else if (k === 40) { if (navVertikal(1)) e.preventDefault(); }
         else if (k === 37) { if (navHorizontal(-1)) e.preventDefault(); }
         else if (k === 39) { if (navHorizontal(1)) e.preventDefault(); }
+    }, true);
+
+    /* Menue-Buttons: Enter explizit behandeln und die Propagierung
+       stoppen. Auf einem <button> feuert Enter nativ ein click(), aber
+       weitere keydown-Handler (Player-OSD, Menue-Taste) liefen ebenfalls
+       und setzten menuState zurueck - danach war menuState.cat null und
+       "Nach unten" tat nichts mehr. */
+    document.addEventListener("keydown", function (e) {
+        if (e.keyCode !== 13 && e.keyCode !== 29443) return;
+        var el = document.activeElement;
+        if (!el || !el.classList || !el.classList.contains("menu-btn")) return;
+        if (el.disabled) { e.preventDefault(); e.stopPropagation(); return; }
+        e.preventDefault();
+        e.stopPropagation();
+        el.click();
     }, true);
 
     /* Enter/OK auf einem fokussierten <div>: der Browser klickt nur
