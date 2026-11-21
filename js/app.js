@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.0";
+var APP_VERSION = "1.2.2";
 
 var state = {
     playerId: null,
@@ -1077,16 +1077,27 @@ function loadAll() {
             all.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
             state.channels = all;
         })
-        .then(function () { return loadVod(); })
-        .then(function () { return loadSeries(); })
-        .then(function () { return loadXmltv(); })
         .then(function () {
+            /* Der Fernseher hat 2,6 GB RAM und rund 200 MB davon frei.
+               Frueher lief hier loadVod -> loadSeries -> loadXmltv: 108.000
+               Filme, 25.000 Serien und das komplette XMLTV-EPG auf einmal.
+               Der Hauptthread stand dabei minutenlang, webOS schob die App
+               in den Swap und der Nutzer sah nur "Lade Kanäle…".
+               Jetzt: erst die Sender (das ist der Screen, den man sieht),
+               der Rest nach dem Umschalten auf die jeweilige Ansicht. */
             renderLiveCategories();
             renderLiveChannels();
-            renderMovies();
-            renderSeries();
             loadProfileState();
             show("view-home");
+
+            /* EPG im Hintergrund nachziehen — nur wenn es noch fehlt. */
+            setTimeout(function () {
+                if (!state.xmltv) {
+                    loadXmltv().then(function () {
+                        if (state.tab === "epg") renderEpg();
+                    }).catch(function () {});
+                }
+            }, 1500);
         })
         .catch(function (e) {
             show("view-pairing");
@@ -1921,7 +1932,23 @@ function activateTab(tab) {
     panes.forEach(function (p) {
         document.getElementById("pane-" + p).classList.toggle("hidden", p !== tab);
     });
-    if (tab === "epg") renderEpg();
+    state.tab = tab;
+    if (tab === "movies" && !state.vodMovies) {
+        document.getElementById("movies-count").textContent = "Filme werden geladen…";
+        loadVod().then(renderMovies).catch(function (e) {
+            document.getElementById("movies-count").textContent = "Fehler: " + e.message;
+        });
+    }
+    if (tab === "series" && !state.seriesShows) {
+        loadSeries().then(renderSeries).catch(function () {});
+    }
+    if (tab === "epg") {
+        if (state.xmltv) { renderEpg(); }
+        else {
+            document.getElementById("epg-grid").innerHTML = '<div class="epg-empty">EPG-Daten werden geladen…</div>';
+            loadXmltv().then(renderEpg).catch(function () { renderEpg(); });
+        }
+    }
     if (tab === "downloads") renderDownloads();
 }
 
