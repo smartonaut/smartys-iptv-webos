@@ -531,3 +531,13 @@ body {
 .menu-item.cat-off { opacity: 0.45; }
 .menu-item.cat-off::after { content: "  · ausgeblendet"; font-size: 0.78em; color: #8FA3C8; }
 .menu-item.cat-row { padding: 10px 14px; }
+
+/* EPG: Zeitachse und Zeilen liegen jetzt in eigenen Wrappern (der Renderer
+   setzt die Zeilen haeppchenweise ein, damit der Hauptthread frei bleibt). */
+.epg-rows { display: block; }
+.epg-timebar-wrap { position: sticky; top: 0; z-index: 2; background: #0B0E14; }
+.epg-prog { cursor: pointer; }
+.epg-prog:focus { outline: 3px solid #FFC94D; outline-offset: -3px; }
+/* EPG virtualisiert: der Behälter trägt die volle Höhe, die Zeilen liegen
+   absolut darin und werden nur für den sichtbaren Bereich gebaut. */
+.epg-rows { position: relative; display: block; }

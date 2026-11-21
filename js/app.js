@@ -34,7 +34,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.2.21";
+var APP_VERSION = "1.2.27";
 
 var state = {
     playerId: null,
@@ -1774,53 +1774,124 @@ function renderEpg() {
     /* Nur Sender aus den SICHTBAREN Kategorien und nur solche, die im
        Fenster wirklich Programme haben. Vorher rendete das Raster alle
        8017 Sender: 6079 davon ohne jede EPG-Zuordnung ergaben leere
-       Zeilen, das Ergebnis war 513.148 px hoch und renderEpg() brauchte
-       4,6 s. */
+       Zeilen, das Ergebnis war 513.148 px hoch. */
     var epgVisCats = makeCatPrefs("live").applyTo(state.categories).map(function (c) { return c.category_id; });
-    var gezeichnet = 0;
-    state.channels.forEach(function (ch) {
-        if (epgPrefs.isHidden(ch.stream_id)) return;
-        if (epgVisCats.indexOf(ch.category_id) < 0) return;
+
+    /* Sender-Map einmal bauen. Der alte Klick-Handler suchte bei JEDEM
+       Klick linear durch alle 8017 Sender - bei 11.967 Sendungsbloecken. */
+    if (!state.streamMap || state.streamMap.__n !== state.channels.length) {
+        var m = { __n: state.channels.length };
+        for (var si = 0; si < state.channels.length; si++) {
+            m[String(state.channels[si].stream_id)] = state.channels[si];
+        }
+        state.streamMap = m;
+    }
+
+    /* Virtualisiert: im DOM stehen nur die sichtbaren Zeilen.
+       Zwei Messungen am Geraet haben das entschieden:
+       - ein einziges innerHTML mit 11.967 Bloecken blockierte 9,5 s
+       - Haeppchen per setTimeout kamen nicht voran (68 Zeilen nach 6 s),
+         weil webOS setTimeout drosselt
+       Bei 1950 Zeilen x 64 px sind nur ~14 gleichzeitig sichtbar. Also
+       wird die Senderliste nur VORBEREITET (billig) und beim Scrollen und
+       Fokussieren werden die sichtbaren Zeilen gebaut. */
+    el.innerHTML = "";
+    var kopf = document.createElement("div");
+    kopf.className = "epg-timebar-wrap";
+    kopf.innerHTML = html;
+    el.appendChild(kopf);
+
+    var behaelter = document.createElement("div");
+    behaelter.className = "epg-rows";
+    el.appendChild(behaelter);
+
+    var ZEILEN_H = 64;
+    var sichtbare = [];
+    for (var ci = 0; ci < state.channels.length; ci++) {
+        var ch = state.channels[ci];
+        if (epgPrefs.isHidden(ch.stream_id)) continue;
+        if (epgVisCats.indexOf(ch.category_id) < 0) continue;
         var progs = (state.xmltv.byId[ch.epg_channel_id] || []);
         if (progs.length === 0 && !ch.epg_channel_id) {
-            var id = state.xmltv.byName[normName(ch.name)];
-            if (id) progs = state.xmltv.byId[id] || [];
+            var bid = state.xmltv.byName[normName(ch.name)];
+            if (bid) progs = state.xmltv.byId[bid] || [];
         }
-        var imFenster = progs.filter(function (pr) { return pr.stop > fensterStart && pr.start < fensterEnde; });
-        if (imFenster.length === 0) return;          /* keine leeren Zeilen */
-        gezeichnet++;
-        html += '<div class="epg-row"><div class="epg-chan">' + esc(ch.name) + '</div><div class="epg-progs">';
-        progs.forEach(function (pr) {
-            if (pr.stop <= fensterStart || pr.start >= fensterEnde) return;
+        var eintraege = [];
+        for (var pi2 = 0; pi2 < progs.length; pi2++) {
+            var pr = progs[pi2];
+            if (pr.stop <= fensterStart || pr.start >= fensterEnde) continue;
+            eintraege.push(pr);
+        }
+        if (eintraege.length === 0) continue;
+        sichtbare.push({ ch: ch, progs: eintraege });
+    }
+
+    state.epgRows = sichtbare;      /* fuer navEpg() */
+    var zaehler = document.getElementById("epg-count");
+    if (zaehler) zaehler.textContent = sichtbare.length + " Sender mit Programm";
+    behaelter.style.height = (sichtbare.length * ZEILEN_H) + "px";
+
+    var letzteVon = -1, letzteBis = -1;
+
+    function zeileHtml(eintrag, index) {
+        var ch = eintrag.ch;
+        var teile = [];
+        for (var k = 0; k < eintrag.progs.length; k++) {
+            var pr = eintrag.progs[k];
             var von = Math.max(pr.start, fensterStart), bis = Math.min(pr.stop, fensterEnde);
             var offset = (von - fensterStart) / 3600000 * PX_PER_HOUR;
             var dur = Math.max(40, (bis - von) / 3600000 * PX_PER_HOUR);
             var isNow = pr.start <= now && pr.stop > now;
-            html += '<div class="epg-prog' + (isNow ? " now" : "") + '" data-sid="' + esc(ch.stream_id) + '"' +
-                ' data-pi="' + (ch.__pi || 0) + '"' +
+            teile.push('<div class="epg-prog' + (isNow ? " now" : "") + '" tabindex="0"' +
+                ' data-sid="' + esc(ch.stream_id) + '" data-pi="' + (ch.__pi || 0) + '"' +
                 ' style="left:' + offset + 'px;width:' + dur + 'px">' +
-                '<div class="epg-prog-time">' + hhmm(pr.start) + '–' + hhmm(pr.stop) + '</div>' +
-                '<div class="epg-prog-title">' + esc(pr.title) + '</div></div>';
-        });
-        html += '</div></div>';
-    });
-    el.innerHTML = html;
+                '<div class="epg-prog-time">' + hhmm(pr.start) + '&ndash;' + hhmm(pr.stop) + '</div>' +
+                '<div class="epg-prog-title">' + esc(pr.title) + '</div></div>');
+        }
+        return '<div class="epg-row" style="position:absolute;top:' + (index * ZEILEN_H) + 'px;left:0;right:0">' +
+            '<div class="epg-chan">' + esc(ch.name) + '</div><div class="epg-progs">' + teile.join("") + '</div></div>';
+    }
 
-    /* Klick auf eine Sendung startet den Sender (Desktop 2.0.0). */
-    var zaehler = document.getElementById("epg-count");
-    if (zaehler) zaehler.textContent = gezeichnet + " Sender mit Programm";
-    Array.prototype.forEach.call(el.querySelectorAll(".epg-prog"), function (b) {
-        b.tabIndex = 0;      /* ohne tabIndex ist das Raster per Fernbedienung tot */
-        b.onclick = function () {
-            var sid = b.getAttribute("data-sid");
-            var pi = parseInt(b.getAttribute("data-pi"), 10) || 0;
-            var ch = null;
-            for (var i = 0; i < state.channels.length; i++) {
-                if (String(state.channels[i].stream_id) === String(sid)) { ch = state.channels[i]; break; }
-            }
-            if (ch) playLive(ch);
-        };
-    });
+    function zeichneBereich() {
+        var oben = el.scrollTop;
+        var hoehe = el.clientHeight || 900;
+        var von = Math.max(0, Math.floor(oben / ZEILEN_H) - 3);
+        var bis = Math.min(sichtbare.length, von + Math.ceil(hoehe / ZEILEN_H) + 7);
+        if (von === letzteVon && bis === letzteBis) return;
+        letzteVon = von; letzteBis = bis;
+        /* WICHTIG: die Position des Fokus VOR dem innerHTML merken. Wird
+           eine Sendung fokussiert, scrollt der Browser sie in den Blick -
+           das feuert scroll, ruft zeichneBereich() und innerHTML zerstoert
+           genau das Element, das gerade den Fokus bekommen hat. Danach war
+           activeElement BODY und die Fernbedienung lief wieder in die Tabs.
+           Mit gemerktem sid wird derselbe Block nach dem Neuaufbau erneut
+           fokussiert, ohne erneutes Scrollen. */
+        var aktivSid = null;
+        var a0 = document.activeElement;
+        if (a0 && a0.getAttribute) aktivSid = a0.getAttribute("data-sid");
+        var stueck = [];
+        for (var z = von; z < bis; z++) stueck.push(zeileHtml(sichtbare[z], z));
+        behaelter.innerHTML = stueck.join("");
+        if (aktivSid) {
+            var wieder = behaelter.querySelector('.epg-prog[data-sid="' + aktivSid + '"]');
+            if (wieder) { try { wieder.focus(); } catch (e) {} }
+        }
+    }
+
+    el.onscroll = function () { zeichneBereich(); };
+    zeichneBereich();
+
+    /* Ein Handler fuer alle Sendungen statt 11.967 einzelner. */
+    el.onclick = function (ev) {
+        var ziel = ev.target;
+        while (ziel && ziel !== el && !(ziel.classList && ziel.classList.contains("epg-prog"))) {
+            ziel = ziel.parentNode;
+        }
+        if (!ziel || ziel === el) return;
+        var sid = ziel.getAttribute("data-sid");
+        var ch2 = state.streamMap ? state.streamMap[String(sid)] : null;
+        if (ch2) playLive(ch2);
+    };
 
     /* Bildlauf auf die laufende Stunde, damit man nicht suchen muss. */
     var scroller = el.parentElement;
@@ -2517,7 +2588,7 @@ function init() {
             chans: "#live-channels .ch",
             vcats: ".pane:not(.hidden) .sidebar .cat",
             grid: ".pane:not(.hidden) .grid-item",
-            epg: "#epg-grid .epg-cell",
+            epg: "#epg-grid .epg-prog",
             menu: ".menu-overlay:not(.hidden) .menu-btn, .menu-overlay:not(.hidden) .menu-item, .menu-overlay:not(.hidden) input"
         }[gruppe];
         if (!sel) return [];
@@ -2543,6 +2614,7 @@ function init() {
     }
 
     window.navVertikal = function (delta) {
+        if (fokusGruppe(document.activeElement) === "epg") return navEpg(delta, true);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
         if (!gruppe) return ersterFokus() || true;   /* true = Taste verbraucht */
@@ -2569,7 +2641,71 @@ function init() {
         return true;
     }
 
+    /* Eigene Navigation im Programm-Raster.
+       Die gewoehnliche Spalten-Navigation springt linear durch die Liste
+       aller Sendungen - im EPG ist das unbrauchbar: rechts/links muss
+       innerhalb der Zeile wandern, hoch/runter in die Nachbarzeile bei
+       aehnlicher Uhrzeit. Ausserdem fehlte "epg" in der Gruppen-Reihenfolge,
+       sodass jede Pfeiltaste auf ersterFokus() (die Tabs) zurueckfiel. */
+    function navEpg(delta, vertikal) {
+        var a = document.activeElement;
+        if (!a || !a.classList || !a.classList.contains("epg-prog")) return false;
+        var zeile = a.closest ? a.closest(".epg-row") : null;
+        if (!zeile) return false;
+        var el = document.getElementById("epg-grid");
+
+        if (!vertikal) {
+            var progs = zeile.querySelectorAll(".epg-prog");
+            var i = Array.prototype.indexOf.call(progs, a);
+            var ziel = i + delta;
+            if (ziel >= 0 && ziel < progs.length) { fokusSetzen(progs[ziel]); }
+            return true;      /* am Zeilenrand: halten, nicht in die Tabs */
+        }
+
+        /* Vertikal: eine Zeile weiter, Sendung mit aehnlicher Startzeit.
+           Ueber den Zeilenindex rechnen, nicht ueber scrollTop: nach dem
+           Scrollen rendert zeichneBereich() neu und stellt die ALTE Sendung
+           per data-sid wieder her - eine Suche nach "aehnliches left" fand
+           dann genau diese alte Sendung und der Fokus blieb stehen. */
+        var ZEILEN_H = 64;
+        var reihen = state.epgRows || [];
+        if (!reihen.length) return true;
+        var idx = Math.round((parseFloat(zeile.style.top) || 0) / ZEILEN_H);
+        var zielIdx = idx + delta;
+        if (zielIdx < 0 || zielIdx >= reihen.length) return true;   /* Rand: halten */
+
+        /* Zielzeile in den Blick bringen */
+        var zielTop = zielIdx * ZEILEN_H;
+        var sichtOben = el.scrollTop;
+        var sichtHoehe = el.clientHeight || 900;
+        if (zielTop < sichtOben + ZEILEN_H) {
+            el.scrollTop = Math.max(0, zielTop - ZEILEN_H);
+        } else if (zielTop > sichtOben + sichtHoehe - 2 * ZEILEN_H) {
+            el.scrollTop = zielTop - sichtHoehe + 2 * ZEILEN_H;
+        }
+        if (el.onscroll) el.onscroll();
+
+        /* In der Zielzeile die Sendung mit der aehnlichsten Startzeit */
+        var links = parseFloat(a.style.left) || 0;
+        var zielZeile = null;
+        var zeilen = el.querySelectorAll(".epg-row");
+        for (var z = 0; z < zeilen.length; z++) {
+            if (Math.abs((parseFloat(zeilen[z].style.top) || 0) - zielTop) < 1) { zielZeile = zeilen[z]; break; }
+        }
+        if (!zielZeile) return true;
+        var kandidaten = zielZeile.querySelectorAll(".epg-prog");
+        var best = null, bestDiff = Infinity;
+        for (var k = 0; k < kandidaten.length; k++) {
+            var l2 = parseFloat(kandidaten[k].style.left) || 0;
+            var diff = Math.abs(l2 - links);
+            if (diff < bestDiff) { bestDiff = diff; best = kandidaten[k]; }
+        }
+        if (best) { try { best.focus(); } catch (e) {} }
+        return true;
+    }
+
     window.navHorizontal = function (delta) {
+        if (fokusGruppe(document.activeElement) === "epg") return navEpg(delta, false);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
         var reihenfolge = gruppe === "menu" ? ["menu"]
