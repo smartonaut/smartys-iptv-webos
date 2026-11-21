@@ -34,7 +34,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.2.17";
+var APP_VERSION = "1.2.19";
 
 var state = {
     playerId: null,
@@ -499,6 +499,20 @@ function makeCatPrefs(scope) {
     cp.allHidden = function (cats) {
         return (cats || []).length > 0 && (cats || []).every(function (c) { return cp.isHidden(c.category_id); });
     };
+    /* Bei ueber 100 Kategorien ist schrittweises Verschieben unbrauchbar -
+       damit springt eine Gruppe direkt an den Anfang oder ans Ende. */
+    cp.moveTop = function (catId, cats) {
+        var id = String(catId);
+        var list = cp.currentOrder(cats).filter(function (x) { return String(x) !== id; });
+        list.unshift(id);
+        cp.saveOrder(list);
+    };
+    cp.moveBottom = function (catId, cats) {
+        var id = String(catId);
+        var list = cp.currentOrder(cats).filter(function (x) { return String(x) !== id; });
+        list.push(id);
+        cp.saveOrder(list);
+    };
     cp.setAllHidden = function (cats, aus) {
         lsSet(catK(scope, "hidden"), aus ? (cats || []).map(function (c) { return c.category_id; }) : []);
     };
@@ -592,9 +606,52 @@ function menuButton(label, cls, onclick) {
     var b = document.createElement("button");
     b.className = "menu-btn" + (cls ? " " + cls : "");
     b.textContent = label;
-    b.onclick = onclick;
+    b.setAttribute("data-btn", label);
+    b.onclick = function () {
+        /* Viele Menue-Aktionen bauen das Menue neu auf (renderCatMenuMode
+           setzt #menu-body per innerHTML zurueck). Dabei wurde jedes Mal
+           der Fokus auf BODY geworfen - bei 112 Kategorien hiess das nach
+           jedem Verschieben wieder von vorn scrollen. Jetzt wird die
+           Beschriftung gemerkt und nach dem Neuaufbau derselbe Button
+           erneut fokussiert. */
+        menuState.lastBtn = label;
+        onclick();
+        setTimeout(function () { fokusMenuBtn(menuState.lastBtn); }, 0);
+    };
     return b;
 }
+
+window.fokusMenuBtn = function (label) {
+    var ov = document.getElementById("menu-overlay");
+    if (!ov || ov.classList.contains("hidden")) return false;
+    var buttons = document.querySelectorAll("#menu-body .menu-btn");
+    var i;
+    if (label) {
+        for (i = 0; i < buttons.length; i++) {
+            if (!buttons[i].disabled && (buttons[i].textContent || "").indexOf(label) >= 0) {
+                try { buttons[i].focus(); } catch (e) {}
+                if (buttons[i].scrollIntoView) { try { buttons[i].scrollIntoView({ block: "nearest" }); } catch (e) {} }
+                return true;
+            }
+        }
+        /* Beschriftung wechselt (z.B. "Als Favorit" -> "Favorit entfernen"):
+           ueber das Praefix suchen. */
+        var kurz = (label || "").replace(/^[^A-Za-zÄÖÜäöüß]+/, "").split(" ")[0];
+        if (kurz) {
+            for (i = 0; i < buttons.length; i++) {
+                if (!buttons[i].disabled && (buttons[i].textContent || "").indexOf(kurz) >= 0) {
+                    try { buttons[i].focus(); } catch (e) {}
+                    return true;
+                }
+            }
+        }
+    }
+    /* Fallback: erster aktiver Button, damit der Fokus nicht auf BODY faellt */
+    for (i = 0; i < buttons.length; i++) {
+        if (!buttons[i].disabled) { try { buttons[i].focus(); } catch (e) {} return true; }
+    }
+    return false;
+};
 
 function openOverlay(title, bodyHtml) {
     document.getElementById("menu-title").textContent = title;
@@ -619,6 +676,7 @@ function openCatMenu(scope, cat, mode) {
        "Nach oben/unten" war per Fernbedienung unerreichbar. */
     openOverlayRaw("Kategorie verwalten", scope);
     renderCatMenuMode();
+    setTimeout(function () { fokusMenuBtn("Nach oben"); }, 0);
 }
 
 function renderCatMenuMode() {
@@ -644,7 +702,9 @@ function renderCatMenuMode() {
             var last = vis.length > 0 && vis[vis.length - 1].category_id === cat.category_id;
             var up = menuButton("▲ Nach oben", first ? "disabled" : "", function () { prefs.moveUp(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
             var down = menuButton("▼ Nach unten", last ? "disabled" : "", function () { prefs.moveDown(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
-            row.appendChild(up); row.appendChild(down);
+            var top = menuButton("⤒ Anfang", first ? "disabled" : "", function () { prefs.moveTop(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
+            var bot = menuButton("⤓ Ende", last ? "disabled" : "", function () { prefs.moveBottom(cat.category_id, cats); menuRefresh(); openCatMenu(scope, cat, 0); });
+            row.appendChild(up); row.appendChild(down); row.appendChild(top); row.appendChild(bot);
             body.appendChild(row);
             var r2 = document.createElement("div");
             r2.className = "menu-row";
