@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.2";
+var APP_VERSION = "1.2.4";
 
 var state = {
     playerId: null,
@@ -1668,9 +1668,18 @@ function hlsConfig() {
         maxBufferSize: (cs > 0 ? Math.max(12, cs * 4) : 60) * 1000 * 1000,
         maxBufferLength: cs > 0 ? Math.max(6, Math.round(cs * 1.5)) : 30,
         maxMaxBufferLength: cs > 0 ? Math.max(12, cs * 3) : 60,
-        liveSyncDurationCount: cs > 0 ? Math.max(2, Math.min(6, Math.round(cs / 2) + 2)) : 3,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingMaxRetry: 4,
+        /* Der Panel-Server liefert eine WACHSENDE Playlist, deren
+           MEDIA-SEQUENCE immer 0 bleibt. hls.js haelt das fuer eine
+           Event-Playlist und spielt ab Segment 0 - dessen Hash ist aber
+           laengst abgelaufen (403). Deshalb: nur ein Segment Abstand zum
+           Live-Ende, damit sofort das NEUESTE Segment geholt wird. Die
+           aelteren werden im Hintergrund nachgezogen. */
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 4,
+        maxBufferLength: 12,
+        maxMaxBufferLength: 30,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 6,
         fragLoadingMaxRetry: 6
     };
 }
@@ -1734,9 +1743,14 @@ function wdReconnect() {
     state.hls = hls;
     hls.loadSource(cb.url);
     hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () {}); });
+    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        try { hls.startLoad(-1); } catch (e) {}
+        video.play().catch(function () {});
+    });
     hls.on(Hls.Events.ERROR, function (evt, data) {
-        if (data && data.fatal && cb.kind === "live") { try { hls.recoverMediaError(); } catch (e) {} }
+        if (data && data.fatal && cb.kind === "live") {
+            try { data.type === Hls.ErrorTypes.NETWORK_ERROR ? hls.startLoad(-1) : hls.recoverMediaError(); } catch (e) {}
+        }
     });
 }
 
@@ -1760,10 +1774,30 @@ function startPlayback() {
         state.hls = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () {}); });
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+            /* Bild muss SOFORT kommen: startLoad(-1) laedt das letzte
+               Segment der Playlist, statt vorne anzufangen und auf drei
+               Segmente zu warten. Der Rest wird im Hintergrund geholt. */
+            if (cb.kind === "live") { hls.startLoad(-1); }
+            video.play().catch(function () {});
+        });
+        /* Bei wachsender Playlist ohne Sequenz-Fortschreibung rutscht die
+           Live-Position weg. Wer mehr als 12 s hinterherhaengt, wird
+           zurueckgeholt - sonst laeuft der Puffer gegen abgelaufene
+           Segmente und das Bild steht. */
+        hls.on(Hls.Events.LEVEL_UPDATED, function (evt, data) {
+            if (cb.kind !== "live" || !data.details || !data.details.live) return;
+            var ziel = hls.liveSyncPosition;
+            if (ziel !== null && ziel !== undefined && video.currentTime < ziel - 12) {
+                video.currentTime = ziel;
+            }
+        });
         hls.on(Hls.Events.ERROR, function (evt, data) {
             if (data.fatal) {
-                if (cb.kind === "live") { hls.recoverMediaError(); }
+                if (cb.kind === "live") {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(-1); }
+                    else { hls.recoverMediaError(); }
+                }
                 else { show("view-home"); }
             }
         });

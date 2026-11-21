@@ -21,7 +21,9 @@ html, body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 48px;
+    /* webOS: 48px rundherum waren auf 1920px rund 3 cm schwarzer Rand auf
+       allen vier Seiten. Overscan-Schutz braucht nur wenige Pixel. */
+    padding: 12px 24px;
     position: relative;
 }
 
@@ -241,8 +243,8 @@ html, body {
 /* ---------- Detailseiten ---------- */
 .detail { width: 100%; height: 100%; overflow-y: auto; }
 .detail-layout {
-    display: flex; gap: 40px; padding: 40px;
-    max-width: 1400px; margin: 0 auto;
+    display: flex; gap: 40px; padding: 20px 24px;
+    max-width: none; margin: 0 auto;
 }
 .detail-poster {
     width: 300px; aspect-ratio: 2/3;
