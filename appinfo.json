@@ -1,6 +1,6 @@
 {
   "id": "com.smartys.iptv",
-  "version": "1.2.19",
+  "version": "1.2.20",
   "vendor": "Smartys",
   "type": "web",
   "main": "index.html",
@@ -9,6 +9,7 @@
   "largeIcon": "icon-large.png",
   "iconColor": "#0B0E14",
   "resolution": "1920x1080",
+  "screenSaverProperties": {"preferredType": 2},
   "bgColor": "#0B0E14",
   "disableBackHistoryAPI": true,
   "allowVideoCapture": false

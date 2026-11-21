@@ -34,7 +34,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.2.19";
+var APP_VERSION = "1.2.20";
 
 var state = {
     playerId: null,
@@ -424,6 +424,52 @@ function ensureDefaultProfile() {
  *  Katalog-Präferenzen (Parität Android CategoryPrefs/ChannelPrefs)
  *  Pro Profil + Scope (live/movies/series) in localStorage.
  * ===================================================================== */
+
+/* =====================================================================
+ *  Bildschirmschoner blockieren
+ *
+ *  webOS startet den Screensaver nach kurzer Inaktivitaet (~2 min auf
+ *  OLED) - beim Durchblaettern der Senderliste sieht der Nutzer also
+ *  ploetzlich den Bildschirmschoner statt seiner App. Ein Vollbild-Video
+ *  haelt ihn fern, eine Liste nicht.
+ *
+ *  Zwei Ebenen:
+ *  1) appinfo.json "screenSaverProperties": {"preferredType": 2} hebt den
+ *     Timeout offiziell auf 30 Minuten (und dimmt nur den OSD-Bereich).
+ *  2) Der tvpower-Dienst fragt vor dem Start per
+ *     registerScreenSaverRequest an; wer mit ack:false antwortet, haelt ihn
+ *     ganz auf. WebOSServiceBridge ist auf webOS 6 die einzige Bruecke -
+ *     webOS.service.request existiert dort nicht (typeof webOS ===
+ *     "undefined"), palmServiceBridge ebenfalls nicht.
+ * ===================================================================== */
+state.screensaver = { registriert: false, blockiert: 0 };
+
+function screenSaverWaechter() {
+    if (typeof WebOSServiceBridge === "undefined") return false;
+    try {
+        var bridge = new WebOSServiceBridge();
+        bridge.onservicecallback = function (msg) {
+            var m;
+            try { m = JSON.parse(msg); } catch (e) { return; }
+            if (!m || m.returnValue !== true || !m.timestamp) return;
+            state.screensaver.blockiert++;
+            try {
+                bridge.call("luna://com.webos.service.tvpower/power/responseScreenSaverRequest",
+                    JSON.stringify({
+                        clientName: "com.smartys.iptv",
+                        ack: false,              /* false = nicht starten */
+                        timestamp: m.timestamp
+                    }));
+            } catch (e) {}
+        };
+        bridge.call("luna://com.webos.service.tvpower/power/registerScreenSaverRequest",
+            JSON.stringify({ subscribe: true, clientName: "com.smartys.iptv" }));
+        state.screensaver.registriert = true;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
 
 function catK(scope, key) { return profileScope("cat_" + scope + "_" + key); }
 function chK(key) { return profileScope("chl_" + key); }
@@ -2209,6 +2255,13 @@ function renderSettings() {
     /* Leitung: nur die aktive wird geladen */
     var provs = state.providers || [];
     var li = activeLineIdx();
+    var ssEl = document.getElementById("screensaver-status");
+    if (ssEl) {
+        ssEl.textContent = state.screensaver.registriert
+            ? ("blockiert · " + state.screensaver.blockiert + "× abgefangen")
+            : "nicht aktiv";
+        ssEl.style.color = state.screensaver.registriert ? "#6FCF9F" : "#8FA3C8";
+    }
     var lineEl = document.getElementById("line-status");
     var lineBtn = document.getElementById("btn-line");
     if (lineEl) {
@@ -2274,6 +2327,7 @@ function init() {
         stopPlayback();
         show("view-home");
     };
+    screenSaverWaechter();
     document.getElementById("btn-settings").onclick = renderSettings;
     document.getElementById("btn-settings-back").onclick = function () { show("view-home"); };
     var btnLine = document.getElementById("btn-line");
