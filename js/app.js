@@ -33,7 +33,8 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.16";
+var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
+var APP_VERSION = "1.2.17";
 
 var state = {
     playerId: null,
@@ -54,6 +55,7 @@ var state = {
     epgShortCache: {},      // streamId -> [{title,start,end}]
 
     favorites: {},          // pro Profil
+    liveQuery: "",          // Suchtext in der Senderliste
     resume: {},             // key -> position ms
     recent: [],             // zuletzt gesehen (streamIds)
     activeProfile: "default",
@@ -791,6 +793,18 @@ function openChanMenu(ch) {
     var visible = prefs.apply(all).filter(function (c) { return !prefs.isHidden(c.stream_id); });
     var idx = -1;
     visible.forEach(function (c, i) { if (c.stream_id === ch.stream_id) idx = i; });
+    var rFav = document.createElement("div");
+    rFav.className = "menu-row";
+    var istFav = !!state.favorites[ch.stream_id];
+    rFav.appendChild(menuButton(istFav ? "★ Favorit entfernen" : "☆ Als Favorit merken", "", function () {
+        if (istFav) delete state.favorites[ch.stream_id];
+        else state.favorites[ch.stream_id] = true;
+        lsSet(profileScope("fav"), state.favorites);
+        menuRefresh();
+        renderLiveChannels();
+        openChanMenu(ch);
+    }));
+    body.appendChild(rFav);
     var r2 = document.createElement("div");
     r2.className = "menu-row";
     r2.appendChild(menuButton("▲ Nach oben", idx <= 0 ? "disabled" : "", function () { prefs.moveUp(ch.stream_id, all); menuRefresh(); openChanMenu(ch); }));
@@ -1324,6 +1338,20 @@ function renderLiveCategories() {
        Elementen - die 370 Kategorien waren bis hierher unerreichbar. */
     all.tabIndex = 0;
     el.appendChild(all);
+    /* Favoriten als eigener Eintrag ganz oben - nur wenn es welche gibt. */
+    var favAnzahl = Object.keys(state.favorites || {}).filter(function (k) { return state.favorites[k]; }).length;
+    if (favAnzahl > 0) {
+        var favEl = document.createElement("div");
+        favEl.className = "cat" + (state.selectedLiveCat === FAV_CAT ? " active" : "");
+        favEl.textContent = "★ Favoriten (" + favAnzahl + ")";
+        favEl.tabIndex = 0;
+        favEl.onclick = function () {
+            state.selectedLiveCat = (state.selectedLiveCat === FAV_CAT) ? null : FAV_CAT;
+            renderLiveCategories();
+            renderLiveChannels();
+        };
+        el.appendChild(favEl);
+    }
     prefs.applyTo(state.categories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedLiveCat === c.category_id ? " active" : "");
@@ -1344,8 +1372,24 @@ function renderLiveChannels() {
     var visibleCatIds = catPrefs.applyTo(state.categories).map(function (c) { return c.category_id; });
     var shown = prefs.apply(state.channels);
     shown = shown.filter(function (c) { return !prefs.isHidden(c.stream_id); });
-    if (state.selectedLiveCat !== null) shown = shown.filter(function (c) { return c.category_id === state.selectedLiveCat; });
-    else shown = shown.filter(function (c) { return visibleCatIds.indexOf(c.category_id) >= 0; });
+    if (state.selectedLiveCat === FAV_CAT) {
+        shown = shown.filter(function (c) { return !!state.favorites[c.stream_id]; });
+    } else if (state.selectedLiveCat !== null) {
+        shown = shown.filter(function (c) { return c.category_id === state.selectedLiveCat; });
+    } else {
+        shown = shown.filter(function (c) { return visibleCatIds.indexOf(c.category_id) >= 0; });
+    }
+    /* Suche: wirkt auf Name UND Kategoriename, damit "Sport" auch die
+       Sender der Sport-Gruppen findet. */
+    var q = (state.liveQuery || "").trim().toLowerCase();
+    if (q) {
+        shown = shown.filter(function (c) {
+            return (c.name || "").toLowerCase().indexOf(q) >= 0 ||
+                   (c.categoryName || "").toLowerCase().indexOf(q) >= 0;
+        });
+    }
+    var cnt = document.getElementById("live-count");
+    if (cnt) cnt.textContent = q ? (shown.length + " Treffer") : (shown.length + " Sender");
     shown.forEach(function (c) {
         var d = document.createElement("div");
         d.className = "ch";
@@ -2201,6 +2245,13 @@ function init() {
         setPin(a, function () { msg.textContent = "PIN gesetzt"; msg.className = "msg ok"; renderSettings(); });
     };
 
+    var liveSearch = document.getElementById("live-search");
+    if (liveSearch) {
+        liveSearch.oninput = function () {
+            state.liveQuery = this.value;
+            renderLiveChannels();
+        };
+    }
     document.getElementById("movies-search").oninput = renderMovies;
     document.getElementById("series-search").oninput = renderSeries;
 
@@ -2299,6 +2350,7 @@ function init() {
      * ================================================================= */
     window.fokusGruppe = function (el) {
         if (!el || el === document.body) return null;
+        if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") return "search";
         if (el.closest(".menu-overlay:not(.hidden)")) return "menu";
         if (el.closest(".tabs")) return "tabs";
         if (el.closest(".topbar-right")) return "topbar";
@@ -2313,6 +2365,7 @@ function init() {
     window.fokusListe = function (gruppe) {
         var sel = {
             tabs: ".tabs .tab",
+            search: ".pane:not(.hidden) .search",
             topbar: ".topbar-right button",
             cats: "#live-categories .cat",
             chans: "#live-channels .ch",
@@ -2353,7 +2406,17 @@ function init() {
         if (i < 0) { fokusSetzen(delta > 0 ? liste[0] : liste[liste.length - 1]); return true; }
         var ziel = i + delta;
         if (ziel < 0 || ziel >= liste.length) {
-            /* Am Rand der Spalte: nicht springen, nur halten. */
+            /* Am Rand der Spalte: in die naechste Zeile wechseln.
+               tabs -> Suchfeld -> Kategorien, sonst halten. */
+            var senkrecht = { tabs: "search", search: "cats", cats: "search" };
+            var ng = senkrecht[gruppe];
+            if (ng) {
+                var nl = fokusListe(ng);
+                if (nl.length) {
+                    fokusSetzen(delta > 0 ? nl[0] : nl[nl.length - 1]);
+                    return true;
+                }
+            }
             return true;
         }
         fokusSetzen(liste[ziel]);
@@ -2381,6 +2444,10 @@ function init() {
 
     document.addEventListener("keydown", function (e) {
         if (state.currentView === "view-player") return;   /* im Player nicht eingreifen */
+        /* In einem Eingabefeld gehoeren die Pfeiltasten dem Text bzw. der
+           Bildschirmtastatur, nicht der Navigation. */
+        var ae = document.activeElement;
+        if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
         var k = e.keyCode;
         if (k === 38) { if (navVertikal(-1)) e.preventDefault(); }
         else if (k === 40) { if (navVertikal(1)) e.preventDefault(); }
