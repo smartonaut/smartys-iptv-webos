@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.4";
+var APP_VERSION = "1.2.5";
 
 var state = {
     playerId: null,
@@ -1246,6 +1246,10 @@ function renderLiveCategories() {
     all.textContent = "Alle Kanäle";
     all.ondblclick = function () { pickCats("live", state.categories); };
     all.onclick = function () { state.selectedLiveCat = null; renderLiveCategories(); renderLiveChannels(); };
+    /* tabIndex: ohne das ist ein <div> fuer das Steuerkreuz unsichtbar.
+       webOS springt mit den Pfeiltasten nur zwischen fokussierbaren
+       Elementen - die 370 Kategorien waren bis hierher unerreichbar. */
+    all.tabIndex = 0;
     el.appendChild(all);
     prefs.applyTo(state.categories).forEach(function (c) {
         var d = document.createElement("div");
@@ -1254,6 +1258,7 @@ function renderLiveCategories() {
         d.textContent = prefs.labelOf(c);
         d.onclick = function () { state.selectedLiveCat = c.category_id; renderLiveCategories(); renderLiveChannels(); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("live", c, 0); };
+        d.tabIndex = 0;
         el.appendChild(d);
     });
 }
@@ -1280,6 +1285,7 @@ function renderLiveChannels() {
             '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : "Keine EPG-Daten") + '</div>';
         d.onclick = function () { playLive(c); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openChanMenu(c); };
+        d.tabIndex = 0;
         el.appendChild(d);
     });
 }
@@ -1338,6 +1344,7 @@ function renderMovies() {
             (rating ? '<span class="rating">' + rating + '</span>' : '') + '</div>' +
             '<div class="grid-title">' + esc(m.name) + '</div>';
         d.onclick = function () { openMovieDetail(m); };
+        d.tabIndex = 0;
         grid.appendChild(d);
     });
 }
@@ -1377,6 +1384,7 @@ function renderSeries() {
         d.innerHTML = '<div class="poster">' + (s.cover ? '<img src="' + esc(s.cover) + '" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">📺</div>') + '</div>' +
             '<div class="grid-title">' + esc(s.name) + '</div>';
         d.onclick = function () { openSeriesDetail(s); };
+        d.tabIndex = 0;
         grid.appendChild(d);
     });
 }
@@ -2128,6 +2136,19 @@ function init() {
             var ok = false;
             try { ok = onMenuKey(); } catch (err) { ok = false; }
             if (ok) e.preventDefault();
+        }
+    });
+
+    /* Enter/OK auf einem fokussierten <div>: der Browser klickt nur
+       echte Buttons und Links. Kategorien und Sender sind divs, also
+       muss der Klick hier ausgeloest werden. */
+    document.addEventListener("keydown", function (e) {
+        if (e.keyCode !== 13 && e.keyCode !== 29443) return;
+        var el = document.activeElement;
+        if (!el) return;
+        if (el.classList.contains("cat") || el.classList.contains("ch") || el.classList.contains("grid-item")) {
+            e.preventDefault();
+            el.click();
         }
     });
 
