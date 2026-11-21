@@ -525,3 +525,9 @@ body {
 ::-webkit-scrollbar-track { background: #0B0E14; }
 ::-webkit-scrollbar-thumb { background: #232C42; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #33405E; }
+
+/* Ausgeblendete Kategorie in der Verwaltung: sichtbar bleiben, damit man
+   sie wieder einblenden kann - aber deutlich als aus ablesbar. */
+.menu-item.cat-off { opacity: 0.45; }
+.menu-item.cat-off::after { content: "  · ausgeblendet"; font-size: 0.78em; color: #8FA3C8; }
+.menu-item.cat-row { padding: 10px 14px; }

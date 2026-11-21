@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.10";
+var APP_VERSION = "1.2.12";
 
 var state = {
     playerId: null,
@@ -420,7 +420,10 @@ function makeCatPrefs(scope) {
     cp.order = function () { return lsGet(catK(scope, "order"), []); };
     cp.hidden = function () { return lsGet(catK(scope, "hidden"), []); };
     cp.renames = function () { return lsGet(catK(scope, "rename"), {}); };
-    cp.isHidden = function (catId) { return cp.hidden().indexOf(catId) >= 0; };
+    /* Typen normalisieren: category_id kommt als Number aus der Xtream-API,
+       data-cat-id liefert einen String. ohne String() findet indexOf nichts
+       und das Ausblenden wirkt um eine Aktion versetzt. */
+    cp.isHidden = function (catId) { return cp.hidden().map(String).indexOf(String(catId)) >= 0; };
     cp.labelOf = function (cat) {
         var r = cp.renames();
         return (r[cat.category_id] && r[cat.category_id].trim()) ? r[cat.category_id] : (cat.category_name || "Unbenannt");
@@ -470,6 +473,21 @@ function makeCatPrefs(scope) {
         var h = cp.hidden();
         (ids || []).forEach(function (id) { if (h.indexOf(id) < 0) h.push(id); });
         lsSet(catK(scope, "hidden"), h);
+    };
+    cp.setHidden = function (catId, aus) {
+        var h = cp.hidden().map(String);
+        var id = String(catId);
+        var i = h.indexOf(id);
+        if (aus && i < 0) h.push(id);
+        else if (!aus && i >= 0) h.splice(i, 1);
+        lsSet(catK(scope, "hidden"), h);
+    };
+    cp.toggle = function (catId) { cp.setHidden(catId, !cp.isHidden(catId)); };
+    cp.allHidden = function (cats) {
+        return (cats || []).length > 0 && (cats || []).every(function (c) { return cp.isHidden(c.category_id); });
+    };
+    cp.setAllHidden = function (cats, aus) {
+        lsSet(catK(scope, "hidden"), aus ? (cats || []).map(function (c) { return c.category_id; }) : []);
     };
     cp.unhideAll = function () { lsSet(catK(scope, "hidden"), []); };
     cp.resetAll = function () {
@@ -784,15 +802,20 @@ function pickCats(scope, cats) {
     body.innerHTML = "";
     var note = document.createElement("div");
     note.className = "menu-note";
-    note.textContent = "Menu-Taste auf einer Kategorie = direkt verwalten";
+    note.textContent = "GELB ein/ausblenden · BLAU alle ein/ausblenden · OK = Menü der Kategorie";
     body.appendChild(note);
     var list = document.createElement("div");
     list.className = "menu-list";
-    prefs.applyTo(cats).forEach(function (c) {
+    /* WICHTIG: hier ALLE Kategorien zeigen, nicht prefs.applyTo(cats).
+       applyTo filtert ausgeblendete heraus - die waren damit fuer immer
+       unsichtbar und liessen sich nie wieder einblenden. */
+    (cats || []).forEach(function (c) {
         var row = document.createElement("div");
-        row.className = "menu-item";
+        var versteckt = prefs.isHidden(c.category_id);
+        row.className = "menu-item cat-row" + (versteckt ? " cat-off" : "");
         row.setAttribute("data-cat-id", c.category_id);
-        row.textContent = prefs.labelOf(c);
+        row.tabIndex = 0;
+        row.textContent = (versteckt ? "○  " : "●  ") + prefs.labelOf(c);
         row.onclick = function () { openCatMenu(scope, c, 0); };
         list.appendChild(row);
     });
@@ -2159,6 +2182,50 @@ function init() {
             if (ok) e.preventDefault();
         }
     });
+
+    /* =================================================================
+     *  Farbtasten in der Kategorie-Verwaltung
+     *
+     *  GELB schaltet die Kategorie unter dem Fokus ein/aus, BLAU schaltet
+     *  alle auf einmal. Beides baute die Liste vorher NICHT neu auf, und
+     *  pickCats zeigte nur die sichtbaren Kategorien - eine ausgeblendete
+     *  war damit fuer immer weg. Jetzt bleibt sie sichtbar (○) und der
+     *  Fokus bleibt auf der Zeile stehen, statt nach oben zu springen.
+     * ================================================================= */
+    window.fokusAufCat = function (catId) {
+        if (!catId) return;
+        var el = document.querySelector('#menu-body [data-cat-id="' + catId + '"]');
+        if (el) {
+            try { el.focus(); } catch (e) {}
+            if (el.scrollIntoView) { try { el.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+        }
+    };
+
+    document.addEventListener("keydown", function (e) {
+        var overlay = document.getElementById("menu-overlay");
+        if (!overlay || overlay.classList.contains("hidden")) return;
+        var scope = menuState.scope;
+        if (scope !== "live" && scope !== "movies" && scope !== "series") return;
+        if (e.keyCode !== 405 && e.keyCode !== 406) return;   /* GELB / BLAU */
+
+        var cats = scope === "live" ? state.categories
+            : (scope === "movies" ? state.vodCategories : state.seriesCategories);
+        var prefs = makeCatPrefs(scope);
+        var el = document.activeElement;
+        var catId = el ? el.getAttribute("data-cat-id") : null;
+
+        if (e.keyCode === 405) {
+            if (!catId) return;
+            e.preventDefault();
+            prefs.toggle(catId);
+        } else {
+            e.preventDefault();
+            prefs.setAllHidden(cats, !prefs.allHidden(cats));
+        }
+        menuRefresh();
+        pickCats(scope, cats);
+        window.fokusAufCat(catId);
+    }, true);
 
     /* =================================================================
      *  Fernbedienungs-Navigation
