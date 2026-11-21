@@ -34,7 +34,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.2.20";
+var APP_VERSION = "1.2.21";
 
 var state = {
     playerId: null,
@@ -45,7 +45,7 @@ var state = {
     channels: [],           // Live-TV Kanäle
     selectedLiveCat: null,
 
-    vodCategories: [], vodMovies: [],
+    vodCategories: [], vodMovies: [], vodLoading: false, seriesLoading: false,
     seriesCategories: [], seriesShows: [],
 
     selectedMovieCat: null,
@@ -1771,13 +1771,24 @@ function renderEpg() {
     html += '</div>';
 
     var epgPrefs = makeChanPrefs();
+    /* Nur Sender aus den SICHTBAREN Kategorien und nur solche, die im
+       Fenster wirklich Programme haben. Vorher rendete das Raster alle
+       8017 Sender: 6079 davon ohne jede EPG-Zuordnung ergaben leere
+       Zeilen, das Ergebnis war 513.148 px hoch und renderEpg() brauchte
+       4,6 s. */
+    var epgVisCats = makeCatPrefs("live").applyTo(state.categories).map(function (c) { return c.category_id; });
+    var gezeichnet = 0;
     state.channels.forEach(function (ch) {
         if (epgPrefs.isHidden(ch.stream_id)) return;
+        if (epgVisCats.indexOf(ch.category_id) < 0) return;
         var progs = (state.xmltv.byId[ch.epg_channel_id] || []);
         if (progs.length === 0 && !ch.epg_channel_id) {
             var id = state.xmltv.byName[normName(ch.name)];
             if (id) progs = state.xmltv.byId[id] || [];
         }
+        var imFenster = progs.filter(function (pr) { return pr.stop > fensterStart && pr.start < fensterEnde; });
+        if (imFenster.length === 0) return;          /* keine leeren Zeilen */
+        gezeichnet++;
         html += '<div class="epg-row"><div class="epg-chan">' + esc(ch.name) + '</div><div class="epg-progs">';
         progs.forEach(function (pr) {
             if (pr.stop <= fensterStart || pr.start >= fensterEnde) return;
@@ -1796,7 +1807,10 @@ function renderEpg() {
     el.innerHTML = html;
 
     /* Klick auf eine Sendung startet den Sender (Desktop 2.0.0). */
+    var zaehler = document.getElementById("epg-count");
+    if (zaehler) zaehler.textContent = gezeichnet + " Sender mit Programm";
     Array.prototype.forEach.call(el.querySelectorAll(".epg-prog"), function (b) {
+        b.tabIndex = 0;      /* ohne tabIndex ist das Raster per Fernbedienung tot */
         b.onclick = function () {
             var sid = b.getAttribute("data-sid");
             var pi = parseInt(b.getAttribute("data-pi"), 10) || 0;
@@ -2198,14 +2212,32 @@ function activateTab(tab) {
         document.getElementById("pane-" + p).classList.toggle("hidden", p !== tab);
     });
     state.tab = tab;
-    if (tab === "movies" && !state.vodMovies) {
+    /* WICHTIG: state.vodMovies startet als [] - und ![] ist in JS false.
+       Die Bedingung "!state.vodMovies" war deshalb nie erfuellt und
+       loadVod() wurde beim Tab-Wechsel NIE gerufen: Filme und Serien
+       blieben auf dem Fernseher dauerhaft leer. Auf Laenge pruefen. */
+    if (tab === "movies" && (!state.vodMovies || state.vodMovies.length === 0) && !state.vodLoading) {
+        state.vodLoading = true;
         document.getElementById("movies-count").textContent = "Filme werden geladen…";
-        loadVod().then(renderMovies).catch(function (e) {
+        loadVod().then(function () {
+            state.vodLoading = false;
+            renderMovies();
+        }).catch(function (e) {
+            state.vodLoading = false;
             document.getElementById("movies-count").textContent = "Fehler: " + e.message;
         });
     }
-    if (tab === "series" && !state.seriesShows) {
-        loadSeries().then(renderSeries).catch(function () {});
+    if (tab === "series" && (!state.seriesShows || state.seriesShows.length === 0) && !state.seriesLoading) {
+        state.seriesLoading = true;
+        document.getElementById("series-count").textContent = "Serien werden geladen…";
+        loadSeries().then(function () {
+            state.seriesLoading = false;
+            renderSeries();
+        }).catch(function (e) {
+            state.seriesLoading = false;
+            var el2 = document.getElementById("series-count");
+            if (el2) el2.textContent = "Fehler: " + e.message;
+        });
     }
     if (tab === "epg") {
         if (state.xmltv) { renderEpg(); }
@@ -2599,6 +2631,18 @@ function init() {
 
     // OK-Taste im Player = OSD togglen
     document.addEventListener("keydown", function (e) {
+        /* Enter auf einer fokussierten EPG-Sendung startet den Sender.
+           tabIndex allein reicht nicht: ein <div> loest bei Enter keinen
+           Klick aus. */
+        if (e.keyCode === 13 || e.keyCode === 29443) {
+            var ael = document.activeElement;
+            if (ael && ael.classList && ael.classList.contains("epg-prog")) {
+                e.preventDefault();
+                e.stopPropagation();
+                ael.click();
+                return;
+            }
+        }
         if (state.currentView === "view-player" && (e.keyCode === 13 || e.keyCode === 29443)) {
             var osd = document.getElementById("osd");
             if (osd.classList.contains("hidden")) showOsd(); else osd.classList.add("hidden");
