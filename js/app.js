@@ -33,7 +33,7 @@
  * ===================================================================== */
 
 var PANEL = "https://panel.smartys.tech";
-var APP_VERSION = "1.2.5";
+var APP_VERSION = "1.2.10";
 
 var state = {
     playerId: null,
@@ -339,6 +339,17 @@ function show(id) {
         if (VIEWS[i] === id) el.classList.remove("hidden"); else el.classList.add("hidden");
     }
     state.currentView = id;
+    /* Beim Wechsel auf eine Liste den Fokus setzen, sonst steht die
+       Fernbedienung im Nichts und das erste Steuerkreuz-Ereignis geht
+       ins Leere. Kurz verzoegert, weil renderLiveCategories() erst nach
+       show() laeuft und die Elemente dann noch nicht existieren. */
+    if (id === "view-home") {
+        setTimeout(function () {
+            if (!document.activeElement || document.activeElement === document.body) {
+                try { window.ersterFokus && window.ersterFokus(); } catch (e) {}
+            }
+        }, 120);
+    }
 }
 
 function setPairMsg(text, cls) {
@@ -1039,45 +1050,54 @@ function loadAll() {
        doppelt in der Seitenleiste steht. Gleiche Sendernamen aus zwei
        Leitungen erscheinen nur einmal. */
     var provs = (state.providers && state.providers.length) ? state.providers : [primaryProvider()];
-    var rohCats = [], rohStreams = [];
-    var kette = Promise.resolve();
-    provs.forEach(function (pr, pi) {
-        kette = kette.then(function () {
-            return xtream(pr, "get_live_categories").then(function (cl) {
-                (cl || []).forEach(function (c) { c.__pi = pi; rohCats.push(c); });
-                return xtream(pr, "get_live_streams").then(function (sl) {
-                    (sl || []).forEach(function (st) { st.__pi = pi; rohStreams.push(st); });
-                });
-            });
-        });
-    });
+    var msgEl = document.querySelector("#view-loading .msg");
+    var fertig = 0;
+    /* Sequenziell, aber jede Leitung wird SOFORT eingearbeitet:
+       - parallel (4 x 21.000 Sender gleichzeitig) hat den TV ueberlastet:
+         alle vier Anfragen hingen, nach 174 s noch kein Ergebnis
+       - alles erst sammeln und am Ende verarbeiten kostet zusaetzlich
+         ~80.000 Rohobjekte im Speicher, den der Fernseher nicht hat
+       Dedupliziert wird beim Einlesen, die Rohantwort ist gleich danach
+       wieder frei. */
+    var gesehen = {}, canon = [];
+    var namen = {}, all = [];
+    var catNames = {};
 
-    return kette
-        .then(function () {
-            var gesehen = {}, canon = [];
-            rohCats.forEach(function (c) {
+    function ladeProv(pr, pi) {
+        return xtream(pr, "get_live_categories").then(function (cl) {
+            (cl || []).forEach(function (c) {
                 var key = (c.category_name || "").trim().toLowerCase();
                 if (!key || gesehen[key]) return;
                 gesehen[key] = true;
                 canon.push({ category_id: c.category_id, category_name: c.category_name });
+                catNames[c.category_id] = c.category_name;
             });
-            state.categories = canon;
-            var catNames = {};
-            canon.forEach(function (c) { catNames[c.category_id] = c.category_name; });
+            return xtream(pr, "get_live_streams").then(function (sl) {
+                (sl || []).forEach(function (st) {
+                    if ((st.name || "").indexOf("####") >= 0) return;
+                    var key = (st.name || "").trim().toLowerCase();
+                    if (namen[key]) return;
+                    namen[key] = true;
+                    st.__pi = pi;
+                    st.categoryName = catNames[st.category_id] || "";
+                    all.push(st);
+                });
+                fertig++;
+                if (msgEl) msgEl.textContent = "Lade Kanäle… (" + fertig + " von " + provs.length + " Leitungen)";
+            });
+        });
+    }
 
-            var namen = {}, all = [];
-            rohStreams.forEach(function (st) {
-                if ((st.name || "").indexOf("####") >= 0) return;
-                var key = (st.name || "").trim().toLowerCase();
-                if (namen[key]) return;
-                namen[key] = true;
-                st.categoryName = catNames[st.category_id] || "";
-                all.push(st);
-            });
-            all.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
-            state.channels = all;
-        })
-        .then(function () {
+    var kette = Promise.resolve();
+    provs.forEach(function (pr, pi) {
+        kette = kette.then(function () { return ladeProv(pr, pi); });
+    });
+    kette = kette.then(function () {
+        state.categories = canon;
+        all.sort(function (a, b) { return (a.num || 0) - (b.num || 0); });
+        state.channels = all;
+    });
+    return kette.then(function () {
             /* Der Fernseher hat 2,6 GB RAM und rund 200 MB davon frei.
                Frueher lief hier loadVod -> loadSeries -> loadXmltv: 108.000
                Filme, 25.000 Serien und das komplette XMLTV-EPG auf einmal.
@@ -1098,8 +1118,7 @@ function loadAll() {
                     }).catch(function () {});
                 }
             }, 1500);
-        })
-        .catch(function (e) {
+        }).catch(function (e) {
             show("view-pairing");
             setPairMsg("Laden fehlgeschlagen: " + e.message, "error");
         });
@@ -2132,12 +2151,118 @@ function init() {
 
     // Menu-Taste (LG: 275 / webOS: 10248) → Verwaltuns-Overlay
     document.addEventListener("keydown", function (e) {
-        if (e.keyCode === 275 || e.keyCode === 10248 || e.key === "ContextMenu") {
+        if (e.keyCode === 275 || e.keyCode === 10248 || e.keyCode === 1536 ||
+            e.key === "ContextMenu" || e.key === "Unidentified" ||
+            e.key === "Info" || e.key === "Settings") {
             var ok = false;
             try { ok = onMenuKey(); } catch (err) { ok = false; }
             if (ok) e.preventDefault();
         }
     });
+
+    /* =================================================================
+     *  Fernbedienungs-Navigation
+     *
+     *  webOS bewegt den Fokus NICHT selbst. Am Geraet gemessen: das
+     *  Steuerkreuz liefert keydown 38/40, aber document.activeElement
+     *  bleibt auf BODY. Ohne eigenes Fokus-Management ist die App nur
+     *  mit der Maus der Magic Remote bedienbar - genau das war der
+     *  Zustand bis 1.2.5.
+     *
+     *  Hoch/Runter laeuft in der aktuellen Spalte, Links/Rechts wechselt
+     *  die Spalte (Tabs -> Kategorien -> Sender). Bei 370 Kategorien waere
+     *  eine reine DOM-Reihenfolge unbrauchbar.
+     * ================================================================= */
+    window.fokusGruppe = function (el) {
+        if (!el || el === document.body) return null;
+        if (el.closest(".menu-overlay:not(.hidden)")) return "menu";
+        if (el.closest(".tabs")) return "tabs";
+        if (el.closest(".topbar-right")) return "topbar";
+        if (el.closest("#live-categories")) return "cats";
+        if (el.closest("#live-channels")) return "chans";
+        if (el.closest(".sidebar")) return "vcats";
+        if (el.closest(".grid")) return "grid";
+        if (el.closest("#epg-grid")) return "epg";
+        return null;
+    }
+
+    window.fokusListe = function (gruppe) {
+        var sel = {
+            tabs: ".tabs .tab",
+            topbar: ".topbar-right button",
+            cats: "#live-categories .cat",
+            chans: "#live-channels .ch",
+            vcats: ".pane:not(.hidden) .sidebar .cat",
+            grid: ".pane:not(.hidden) .grid-item",
+            epg: "#epg-grid .epg-cell",
+            menu: ".menu-overlay:not(.hidden) .menu-btn, .menu-overlay:not(.hidden) .menu-item, .menu-overlay:not(.hidden) input"
+        }[gruppe];
+        if (!sel) return [];
+        return Array.prototype.slice.call(document.querySelectorAll(sel)).filter(function (e) {
+            return e.offsetParent !== null;
+        });
+    }
+
+    window.fokusSetzen = function (el) {
+        if (!el) return false;
+        try { el.focus(); } catch (e) { return false; }
+        if (el.scrollIntoView) { try { el.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+        return true;
+    }
+
+    window.ersterFokus = function () {
+        var kandidaten = ["tabs", "cats", "chans", "vcats", "grid", "epg"];
+        for (var i = 0; i < kandidaten.length; i++) {
+            var l = fokusListe(kandidaten[i]);
+            if (l.length) return fokusSetzen(l[0]);
+        }
+        return false;
+    }
+
+    window.navVertikal = function (delta) {
+        var el = document.activeElement;
+        var gruppe = fokusGruppe(el);
+        if (!gruppe) return ersterFokus() || true;   /* true = Taste verbraucht */
+        var liste = fokusListe(gruppe);
+        if (!liste.length) return false;
+        var i = liste.indexOf(el);
+        if (i < 0) { fokusSetzen(delta > 0 ? liste[0] : liste[liste.length - 1]); return true; }
+        var ziel = i + delta;
+        if (ziel < 0 || ziel >= liste.length) {
+            /* Am Rand der Spalte: nicht springen, nur halten. */
+            return true;
+        }
+        fokusSetzen(liste[ziel]);
+        return true;
+    }
+
+    window.navHorizontal = function (delta) {
+        var el = document.activeElement;
+        var gruppe = fokusGruppe(el);
+        var reihenfolge = gruppe === "menu" ? ["menu"]
+            : (state.tab === "live" || !state.tab) ? ["tabs", "cats", "chans"]
+            : ["tabs", "vcats", "grid"];
+        if (gruppe === "topbar") reihenfolge = ["tabs", "topbar"];
+        if (!gruppe) return ersterFokus() || true;
+        var pos = reihenfolge.indexOf(gruppe);
+        if (pos < 0) return ersterFokus() || true;
+        for (var schritt = 1; schritt < reihenfolge.length; schritt++) {
+            var p = pos + delta * schritt;
+            if (p < 0 || p >= reihenfolge.length) break;
+            var l = fokusListe(reihenfolge[p]);
+            if (l.length) { fokusSetzen(l[0]); return true; }
+        }
+        return true;
+    }
+
+    document.addEventListener("keydown", function (e) {
+        if (state.currentView === "view-player") return;   /* im Player nicht eingreifen */
+        var k = e.keyCode;
+        if (k === 38) { if (navVertikal(-1)) e.preventDefault(); }
+        else if (k === 40) { if (navVertikal(1)) e.preventDefault(); }
+        else if (k === 37) { if (navHorizontal(-1)) e.preventDefault(); }
+        else if (k === 39) { if (navHorizontal(1)) e.preventDefault(); }
+    }, true);
 
     /* Enter/OK auf einem fokussierten <div>: der Browser klickt nur
        echte Buttons und Links. Kategorien und Sender sind divs, also
