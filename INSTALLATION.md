@@ -6,36 +6,36 @@ Voraussetzungen
 - LG TV mit webOS (TV ist ~1 Jahr alt → webOS 24/25; die App nutzt
   abwärtskompatible APIs, läuft also auch auf älteren webOS-Versionen)
 - Der TV und dieser Rechner müssen im selben Netz hängen
-- Die App-Datei: **com.smartys.iptv_1.2.0_all.ipk**
+- Die App-Datei: **com.smartys.iptv_1.2.1_all.ipk**
   liegt unter ~/Projekte/Smartys Player/webOS/ (mit ./build_ipk.sh neu baubar)
   oder als Download: https://github.com/smartonaut/smartys-iptv-webos/releases/latest
 
 
 Schritt 1 — LG Developer Mode einschalten (einmalig)
 ----------------------------------------------------
-1. Am TV die Fernbedienung nehmen und zu:
-   Einstellungen (Zahnrad) → Alle Einstellungen → Allgemein →
-   Über diesen Fernseher
+1. Kostenloses LG-Developer-Konto anlegen:
+   - https://webostv.developer.lge.com/ öffnen (Portal: developer.lge.com)
+   - "Sign In" → "Create Account", E-Mail bestätigen
 
-2. Den Menüpunkt "LG Developer Mode" anklicken und auf EIN schalten.
+2. Am TV: LG Content Store (heißt je nach Baujahr auch "Apps") öffnen,
+   nach "Developer Mode" suchen und die App installieren.
+   Einen Menüpunkt "LG Developer Mode" unter "Über diesen Fernseher" gibt es
+   bei webOS 6 und neuer NICHT — das ist der häufigste Irrweg.
 
-3. Wenn der TV nach einem Konto fragt:
-   - Am Computer die Seite https://developers.lg.com/ öffnen
-   - Oben rechts auf "Sign In" klicken und ein kostenloses LG-Developer-Konto
-     erstellen (oder mit einem bestehenden LG-Konto anmelden).
+3. Die "Developer Mode"-App öffnen, mit dem LG-Konto anmelden und
+   "Dev Mode Status" auf ON stellen. Der TV startet neu.
 
-4. Nach dem Einschalten startet der TV neu.
-   Nach dem Neustart liegt auf dem Home-Bildschirm eine App mit dem Namen
-   "Developer Mode".
-
-5. Diese "Developer Mode"-App öffnen und ANMELDEN (mit dem LG-Developer-Konto).
-   Danach zeigt die App dauerhaft den Status an — dort stehen zwei Dinge,
+4. Nach dem Neustart die App wieder öffnen. Dort stehen die drei Dinge,
    die gleich wichtig sind:
-     - Der "Passphrase"/Passcode (6-stellig, z. B. "123456")
-     - Der Hinweis, dass der TV unter einer IP im Netz erreichbar ist
+     - IP-Adresse des Fernsehers
+     - Passcode / Passphrase (6-stellig, z. B. "123456")
+     - "Key Server" → muss zusätzlich auf ON stehen, sonst nimmt der TV
+       keine Verbindung von außen an
 
-   Diese App MUSS am Ende wieder geöffnet bleiben bzw. der Dev Mode aktiv sein,
-   sonst läuft die installierte App nach 48 Stunden ab (Sicherheits-Sperre).
+   Der Developer Mode läuft 1.000 Stunden (bei älteren Geräten 50).
+   Ist die Zeit abgelaufen, entfernt der TV die App wieder. Rechtzeitig in
+   der App auf "Extend" drücken — nach Ablauf lässt sich nicht verlängern.
+   Ein Konto darf immer nur auf EINEM Fernseher gleichzeitig angemeldet sein.
 
 
 Schritt 2 — IP-Adresse des TVs herausfinden
@@ -57,36 +57,36 @@ aufgerufen wird sie über npx.
 Zuerst den TV einmalig als Gerät registrieren:
 
     cd ~/Projekte/Smartys Player/webOS
-    npx ares-setup-device -a <TV-IP> -p "<Passcode>"
+    npx ares-setup-device -a tv -i '{"host":"<TV-IP>","port":"9922","username":"prisoner"}'
 
-    (Passcode = die 6-stellige Zahl aus der Developer-Mode-App)
+    (Port 9922 und Benutzer "prisoner" sind bei jedem LG-TV gleich.
+     Ein "-p <Passcode>" gibt es bei ares-setup-device NICHT.)
+
+Passcode abholen — es wird nach dem 6-stelligen Code vom TV gefragt:
+
+    npx ares-novacom --device tv --getkey
 
 Danach die App installieren:
 
-    npx ares-install --device <TV-IP> com.smartys.iptv_1.2.0_all.ipk
+    npx ares-install --device tv com.smartys.iptv_1.2.1_all.ipk
 
 Fertig. Die App erscheint nach ein paar Sekunden auf dem Home-Bildschirm
 unter dem Namen "Smartys M3U Player".
 
 App später starten:
 
-    npx ares-launch --device <TV-IP> com.smartys.iptv
+    npx ares-launch --device tv com.smartys.iptv
 
-WEG B — über die Developer-Mode-App per Web-Server
---------------------------------------------------
-1. Am TV die "Developer Mode"-App öffnen.
-2. In der App den Punkt "Web Server" / "Upload" anklicken — die App zeigt dann
-   eine Adresse im Browser an, z. B. http://<TV-IP>:80  (oder einen Link).
-3. Diese Adresse am Computer im Browser öffnen.
-4. Dort die Datei com.smartys.iptv_1.2.0_all.ipk hochladen.
-5. Die App wird direkt installiert und erscheint auf dem Home-Bildschirm.
+WEG B — webOS Dev Manager (Handy, kein Rechner nötig)
+-----------------------------------------------------
+1. App "webOS Dev Manager" auf dem Handy installieren.
+2. Fernseher hinzufügen (IP + Passcode aus der Developer-Mode-App).
+3. Die .ipk auswählen und installieren.
 
-WEG C — über USB-Stick (wenn kein Netz zwischen Rechner und TV)
----------------------------------------------------------------
-1. Die .ipk auf einen USB-Stick kopieren.
-2. Stick in den TV stecken.
-3. Developer-Mode-App öffnen → "USB" / "Install from USB" wählen.
-4. Die Datei auswählen und installieren.
+WICHTIG: Weder einen "Web Server"/"Upload" in der Developer-Mode-App noch eine
+USB-Installation gibt es bei webOS 6 und neuer. Der USB-Stick wird am Fernseher
+nicht als Installationsquelle angenommen — das ist eine Sperre von LG, kein
+Fehler in der Anleitung. Es bleiben nur ares-cli (Weg A) und der Dev Manager.
 
 
 Schritt 4 — App einrichten (Pairing)
@@ -117,10 +117,10 @@ Hinweise
 - Sollte ein Kanal schwarz bleiben: Die App nutzt hls.js. Bei älteren webOS-
   Versionen greift automatisch natives HLS (Safari/WebKit).
 - Welche Version installiert ist, steht in der App unter Einstellungen →
-  Über (z. B. „Smartys Player 1.2.0 (webOS)").
-- Für den Freund-TV ist WEG C (USB-Stick) der einfachste Weg: .ipk vom
-  Raider herunterladen (oder von smartys.tech), auf einen FAT32/NTFS-Stick
-  kopieren, TV stecken und in der Developer-Mode-App installieren.
+  Über (z. B. „Smartys Player 1.2.1 (webOS)").
+- Für einen Fernseher in einem anderen Haushalt ist der webOS Dev Manager
+  (Weg B) der einfachste Weg: kein Rechner, keine ares-cli — nur Handy,
+  IP und Passcode. Die .ipk vorher von der Release-Seite herunterladen.
 
 
 v1.2.0 — Parität mit Android v0.8.31 und Desktop 2.0.0
@@ -152,7 +152,7 @@ v1.2.0 — Parität mit Android v0.8.31 und Desktop 2.0.0
     ./build_ipk.sh
 Erzeugt com.smartys.iptv_<version>_all.ipk ohne ares-cli (ar-Archiv mit
 debian-binary, control.tar.gz, data.tar.gz). Prüfen:
-    ar t com.smartys.iptv_1.2.0_all.ipk          # genau drei Einträge
+    ar t com.smartys.iptv_1.2.1_all.ipk          # genau drei Einträge
     tar tzf data.tar.gz | head                  # muss mit usr/ beginnen
 
 
