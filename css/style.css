@@ -191,11 +191,14 @@ html, body {
 }
 .sidebar .cat:focus { outline: 2px solid #FFC94D; }
 
-.channellist { flex: 1; overflow-y: auto; padding: 12px 24px; }
+.channellist { flex: 1; overflow-y: auto; padding: 12px 24px; position: relative; }
+.chans-virt { position: relative; display: block; width: 100%; }
 .channellist .ch {
     padding: 14px 18px;
     cursor: pointer;
     border-radius: 8px;
+    height: 74px;           /* fixe Zeilenhoehe, Voraussetzung der Virtualisierung */
+    overflow: hidden;
 }
 .channellist .ch:hover { background: #1A2238; }
 .channellist .ch:focus { outline: 2px solid #FFC94D; }
@@ -212,7 +215,12 @@ html, body {
     gap: 16px;
     padding: 16px 24px;
     align-content: start;
+    position: relative;
 }
+/* v1.3.0: virtualisiertes Gitter - die Items liegen absolut in einem
+   Behaelter mit voller Hoehe; das CSS-Grid oben gilt nur noch fuer den
+   (einen) Wrapper. Position/Breite/Hoehe kommen inline aus renderGridVirt. */
+.grid-virt { position: relative; display: block; width: 100%; }
 .grid-item { cursor: pointer; }
 .grid-item:focus { outline: 3px solid #FFC94D; }
 .poster {

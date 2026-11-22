@@ -24,6 +24,24 @@
  *  - IMDb-/Filmstarts-Verweis als QR (Fernseher kann keine Links oeffnen)
  *  - Mehrzeilen-Modus: Kategorien nach Namen zusammengefasst
  *
+ *  v1.3.0 — TV-Tuning fuer OLED65C17LB (webOS 6.5, Chrome 79, 2,6 GB RAM,
+ *           davon dauerhaft < 200 MB frei, JS-Heap-Limit 747 MB):
+ *  - Senderliste virtualisiert: vorher 8.017 DOM-Elemente (~24.000 Knoten),
+ *     jetzt nur die sichtbaren Zeilen im DOM
+ *  - Film-/Serien-Gitter virtualisiert: vorher bis zu 29.000 Poster-Elemente
+ *     auf einen Schlag, jetzt zeilenweise nur der sichtbare Bereich
+ *  - XMLTV-EPG-Fenster: nur -6 h bis +30 h behalten, Rohtext nach dem
+ *     Parsen sofort fuer den GC freigeben
+ *  - hls.js-Puffer-Bug behoben: maxBufferLength wurde vom eigenen
+ *     Konfig-Objekt UEBERSCHRIEBEN (Einstellung wirkte nie); Puffer-
+ *     Standard auf TV-Groesse abgesenkt (40 MB statt 60)
+ *  - Speicherwaechter im Hintergrund (10-s-Takt): misst den JS-Heap,
+ *     ab 62 % weiche Bereinigung (inaktive Ansichten leeren), ab 82 %
+ *     kritisch (EPG-Daten verwerfen, laden bei Bedarf neu). Laueft ohne
+ *     Unterbrechung der Wiedergabe; Zaehler in den Einstellungen sichtbar.
+ *  - Bild-Start verschaerft: startPosition:-1 holt das Live-Ende sofort,
+ *     kuerzere Manifest-Timeouts und Retries
+ *  - Poster-Bilder mit loading="lazy" + decoding="async"
  *  Feature-Paritaet zur Android-/Desktop-App:
  *  Pairing, Live-TV, VOD (Movies/Series), EPG-Grid, Catch-up/Timeshift,
  *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
@@ -34,7 +52,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.2.27";
+var APP_VERSION = "1.3.0";
 
 var state = {
     playerId: null,
@@ -70,6 +88,13 @@ var state = {
     queue: [],              // Folgen-Schlange ("Staffel abspielen")
     queueIdx: -1,
     creditsShown: false,    // Abspann-Hinweis schon gezeigt?
+
+    /* v1.3.0 */
+    visibleChans: [],       // Senderliste: gefilterte Daten (Renderquelle)
+    chansIdx: {},           // stream_id(String) -> Index in visibleChans
+    visibleMovies: [],      // Filme: gefilterte Daten
+    visibleSeries: [],      // Serien: gefilterte Daten
+    memguard: { timer: null, bereinigungen: 0, stufe: "" },
 };
 
 /* =====================================================================
@@ -352,6 +377,11 @@ function show(id) {
         if (VIEWS[i] === id) el.classList.remove("hidden"); else el.classList.add("hidden");
     }
     state.currentView = id;
+    /* Hintergrund-Bereinigung kann Listen geleert haben - beim Anzeigen
+       der Hauptansicht zuerst dafuer sorgen, dass alles wieder steht. */
+    if (id === "view-home") {
+        try { homeViewsFrisch(); } catch (e) {}
+    }
     /* Beim Wechsel auf eine Liste den Fokus setzen, sonst steht die
        Fernbedienung im Nichts und das erste Steuerkreuz-Ereignis geht
        ins Leere. Kurz verzoegert, weil renderLiveCategories() erst nach
@@ -1333,13 +1363,26 @@ function loadXmltv() {
     return http("GET", url, { timeout: 30000 }).then(function (xhr) {
         if (xhr.status !== 200) throw new Error("HTTP " + xhr.status);
         state.xmltv = parseXmltv(xhr.responseText);
+        /* Der Rohtext (bei grossen Anbietern 60-100 MB) bleibt sonst als
+           xhr.responseText im Speicher haengen. Explizit freigeben. */
+        try { xhr.responseText = null; } catch (e) {}
     }).catch(function () {
         state.xmltv = { byId: {}, byName: {}, ready: false };
     });
 }
 
+/* EPG-Fenster: was wirklich gezeigt wird. Das Raster zeigt -0,5 h..+6 h,
+   OSD das laufende Programm. Alles ausserhalb weglassen haelt den Heap
+   klein - ein Voll-EPG ueber mehrere Tage erzeugt sonst hunderttausende
+   Objekte, die nie jemand sieht. */
+var EPG_VON_MS = 6 * 3600000;    /* Vergangenheit */
+var EPG_BIS_MS = 30 * 3600000;   /* Zukunft */
+
 function parseXmltv(xml) {
     var byId = {}, byName = {};
+    var jetzt = Date.now();
+    var von = jetzt - EPG_VON_MS, bis = jetzt + EPG_BIS_MS;
+    function behalte(pr) { return (!pr.stop || pr.stop >= von) && pr.start <= bis; }
     var doc = (typeof DOMParser !== "undefined") ? new DOMParser().parseFromString(xml, "text/xml") : null;
     if (!doc || doc.getElementsByTagName("parsererror").length) {
         var progRe = /<programme\b([^>]*)>([\s\S]*?)<\/programme>/g, m;
@@ -1350,7 +1393,8 @@ function parseXmltv(xml) {
             var stop = parseXmltvTime((attrs.match(/stop="([^"]*)"/) || [])[1]);
             var title = (m[2].match(/<title[^>]*>([\s\S]*?)<\/title>/) || [])[1] || "";
             if (channel && start > 0) {
-                (byId[channel] = byId[channel] || []).push({ start: start, stop: stop, title: htmlDecode(title.trim()) });
+                var pr0 = { start: start, stop: stop, title: htmlDecode(title.trim()) };
+                if (behalte(pr0)) (byId[channel] = byId[channel] || []).push(pr0);
             }
         }
     } else {
@@ -1363,7 +1407,8 @@ function parseXmltv(xml) {
             var t = el.getElementsByTagName("title")[0];
             var title = t ? t.textContent : "";
             if (channel && start > 0) {
-                (byId[channel] = byId[channel] || []).push({ start: start, stop: stop, title: title.trim() });
+                var pr1 = { start: start, stop: stop, title: title.trim() };
+                if (behalte(pr1)) (byId[channel] = byId[channel] || []).push(pr1);
             }
         }
         var chans = doc.getElementsByTagName("channel");
@@ -1372,9 +1417,11 @@ function parseXmltv(xml) {
             var dn = chans[j].getElementsByTagName("display-name")[0];
             if (id && dn) byName[normName(dn.textContent)] = id;
         }
+        /* Das geparste XML-Dokument ist hier aus der Closure-Pflicht: */
+        doc = null;
     }
     Object.keys(byId).forEach(function (k) { byId[k].sort(function (a, b) { return a.start - b.start; }); });
-    return { byId: byId, byName: byName, ready: true };
+    return { byId: byId, byName: byName, ready: true, geladenUm: Date.now() };
 }
 
 function parseXmltvTime(s) {
@@ -1470,9 +1517,23 @@ function renderLiveCategories() {
     });
 }
 
-function renderLiveChannels() {
-    var el = document.getElementById("live-channels");
-    el.innerHTML = "";
+/* =====================================================================
+ *  Senderliste — VIRTUALISIERT (v1.3.0)
+ *
+ *  Vor v1.3.0 renderte diese Funktion ALLE Sender in den DOM: 8.017 Zeilen
+ *  mit je zwei Kindern = ~24.000 Knoten, 103 MB JS-Heap direkt nach dem
+ *  Start, und der Hauptthread stand beim Aufbau mehrere Sekunden still.
+ *  Genau dasselbe Problem hatte das EPG-Raster schon (9,5 s Blockade) -
+ *  die Loesung ist auch hier dieselbe: feste Zeilenhoehe, Behaelter auf
+ *  voller Hoehe, Zeilen absolut positioniert und nur der sichtbare Bereich
+ *  (+Puffer) liegt wirklich im DOM. Die Daten bleiben in state.visibleChans,
+ *  die Vertikal-Navigation laeuft ueber den Index in diesem Array (siehe
+ *  navChans), nicht ueber die DOM-Reihenfolge.
+ * ===================================================================== */
+
+var CH_ZEILEN_H = 74;   /* muss zu .channellist .ch { height } im CSS passen */
+
+function computeVisibleChannels() {
     var prefs = makeChanPrefs();
     var catPrefs = makeCatPrefs("live");
     var visibleCatIds = catPrefs.applyTo(state.categories).map(function (c) { return c.category_id; });
@@ -1494,23 +1555,136 @@ function renderLiveChannels() {
                    (c.categoryName || "").toLowerCase().indexOf(q) >= 0;
         });
     }
+    state.visibleChans = shown;
+    var idx = {};
+    for (var i = 0; i < shown.length; i++) idx[String(shown[i].stream_id)] = i;
+    state.chansIdx = idx;
+    return shown;
+}
+
+function renderLiveChannels() {
+    var el = document.getElementById("live-channels");
+    var prefs = makeChanPrefs();
+
+    /* Aktiven Sender UND Scrollposition VOR dem Neuaufbau merken: ein
+       Neu-Rendern (Menue-Aktion, Suche, Kategoriewechsel) darf den Nutzer
+       nicht an den Listenanfang schleudern. */
+    var vorherScroll = el.scrollTop;
+    var vorherSid = null;
+    var a0 = document.activeElement;
+    if (a0 && a0.getAttribute && el.contains(a0)) vorherSid = a0.getAttribute("data-ch-id");
+
+    var shown = computeVisibleChannels();
     var cnt = document.getElementById("live-count");
-    if (cnt) cnt.textContent = q ? (shown.length + " Treffer") : (shown.length + " Sender");
-    shown.forEach(function (c) {
-        var d = document.createElement("div");
-        d.className = "ch";
-        d.setAttribute("data-ch-id", c.stream_id);
-        var nn = nowNext(c);
-        var fav = state.favorites[c.stream_id] ? " ★" : "";
-        var lock = prefs.isLocked(c.stream_id) ? " 🔒" : "";
-        var num = c.num ? c.num + "  " : "";
-        d.innerHTML = '<div class="ch-name">' + esc(num + c.name) + fav + lock + '</div>' +
-            '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : "Keine EPG-Daten") + '</div>';
-        d.onclick = function () { playLive(c); };
-        d.ondblclick = function (ev) { ev.stopPropagation(); openChanMenu(c); };
-        d.tabIndex = 0;
-        el.appendChild(d);
-    });
+    if (cnt) cnt.textContent = (state.liveQuery || "").trim() ? (shown.length + " Treffer") : (shown.length + " Sender");
+
+    el.innerHTML = "";
+    var behaelter = document.createElement("div");
+    behaelter.className = "chans-virt";
+    behaelter.style.height = (shown.length * CH_ZEILEN_H) + "px";
+    el.appendChild(behaelter);
+
+    var letzteVon = -2, letzteBis = -2;
+
+    function zeichneBereich() {
+        var oben = el.scrollTop;
+        var hoehe = el.clientHeight || 800;
+        var von = Math.max(0, Math.floor(oben / CH_ZEILEN_H) - 3);
+        var bis = Math.min(shown.length, von + Math.ceil(hoehe / CH_ZEILEN_H) + 7);
+        if (von === letzteVon && bis === letzteBis) return;
+        letzteVon = von; letzteBis = bis;
+        var aktivSid = null;
+        var a1 = document.activeElement;
+        if (a1 && a1.getAttribute) aktivSid = a1.getAttribute("data-ch-id");
+        var stueck = [];
+        for (var z = von; z < bis; z++) {
+            var c = shown[z];
+            var nn = nowNext(c);
+            var fav = state.favorites[c.stream_id] ? " ★" : "";
+            var lock = prefs.isLocked(c.stream_id) ? " 🔒" : "";
+            var num = c.num ? c.num + "  " : "";
+            stueck.push('<div class="ch" tabindex="0" data-ch-id="' + esc(c.stream_id) + '"' +
+                ' style="position:absolute;top:' + (z * CH_ZEILEN_H) + 'px;left:0;right:8px">' +
+                '<div class="ch-name">' + esc(num + c.name) + fav + lock + '</div>' +
+                '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : "Keine EPG-Daten") + '</div></div>');
+        }
+        behaelter.innerHTML = stueck.join("");
+        if (aktivSid) {
+            var wieder = behaelter.querySelector('.ch[data-ch-id="' + aktivSid + '"]');
+            if (wieder) { try { wieder.focus(); } catch (e) {} }
+        }
+    }
+
+    el.onscroll = zeichneBereich;
+    /* EIN Klick-Handler auf der Liste statt tausender Closures einzelner
+       Zeilen - spart Speicher und Aufbaukosten. */
+    el.onclick = function (ev) {
+        var ziel = ev.target;
+        while (ziel && ziel !== el && !(ziel.classList && ziel.classList.contains("ch"))) {
+            ziel = ziel.parentNode;
+        }
+        if (!ziel || ziel === el) return;
+        var ch2 = state.visibleChans[state.chansIdx[String(ziel.getAttribute("data-ch-id"))]];
+        if (ch2) playLive(ch2);
+    };
+    el.ondblclick = function (ev) {
+        var ziel = ev.target;
+        while (ziel && ziel !== el && !(ziel.classList && ziel.classList.contains("ch"))) {
+            ziel = ziel.parentNode;
+        }
+        if (!ziel || ziel === el) return;
+        ev.stopPropagation();
+        var ch2 = state.visibleChans[state.chansIdx[String(ziel.getAttribute("data-ch-id"))]];
+        if (ch2) openChanMenu(ch2);
+    };
+
+    /* Scrollposition restaurieren, dann zeichnen - und zwar BEVOR
+       scrollTop gesetzt wird nichts gerendert, weil onscroll drosselt. */
+    el.scrollTop = vorherScroll;
+    zeichneBereich();
+
+    if (vorherSid && state.chansIdx[String(vorherSid)] !== undefined) {
+        var f = behaelter.querySelector('.ch[data-ch-id="' + vorherSid + '"]');
+        if (f) { try { f.focus(); } catch (e) {} }
+    }
+}
+
+/* Vertikal-Navigation der Senderliste ueber den Daten-Index - analog
+   navEpg(). DOM-basiert wuerde an der Grenze des gerenderten Fensters
+   enden, weil weiter entfernte Zeilen gar nicht existieren. */
+function navChans(delta) {
+    var el = document.getElementById("live-channels");
+    var liste = state.visibleChans;
+    if (!liste || !liste.length) return false;
+    var a = document.activeElement;
+    var sid = a && a.getAttribute ? a.getAttribute("data-ch-id") : null;
+    var idx = (sid !== null && sid !== undefined && state.chansIdx[String(sid)] !== undefined)
+        ? state.chansIdx[String(sid)] : -1;
+    if (idx < 0) {
+        /* Fokus steht ausserhalb (z.B. Neuaufbau): wieder reinholen. */
+        var neu = el.querySelector(".ch");
+        if (neu) { fokusSetzen(neu); }
+        return true;
+    }
+    var ziel = idx + delta;
+    if (ziel < 0) {
+        /* Oberhalb des ersten Senders: Liste nach oben verlassen
+           (Suchfeld, sonst Kategorien). */
+        var sn = fokusListe("search");
+        if (sn.length) { fokusSetzen(sn[0]); return true; }
+        var cl = fokusListe("cats");
+        if (cl.length) { fokusSetzen(cl[cl.length - 1]); return true; }
+        return true;
+    }
+    if (ziel >= liste.length) return true;   /* unterer Rand: halten */
+    var zielTop = ziel * CH_ZEILEN_H;
+    var oben = el.scrollTop, hoehe = el.clientHeight || 800;
+    if (zielTop < oben) el.scrollTop = zielTop;
+    else if (zielTop + CH_ZEILEN_H > oben + hoehe) el.scrollTop = zielTop + CH_ZEILEN_H - hoehe;
+    if (el.onscroll) el.onscroll();
+    var w = el.querySelector('.ch[data-ch-id="' + liste[ziel].stream_id + '"]');
+    if (w) fokusSetzen(w);
+    return true;
 }
 
 function epgLine(now, next) {
@@ -1528,6 +1702,138 @@ function hhmm(epoch) {
 /* =====================================================================
  *  VOD Rendering
  * ===================================================================== */
+
+/* =====================================================================
+ *  VOD-Gitter — VIRTUALISIERT (v1.3.0)
+ *
+ *  renderMovies()/renderSeries() bauten bisher pro Titel ein grid-item -
+ *  bei 29.000 Filmen waren das sofort ~90.000 Knoten plus ebenso viele
+ *  Closures. Das hat den Tab-Wechsel zu einer Vollblockade gemacht und
+ *  tausende Poster-Downloads ausgeloest. Jetzt: nur sichtbare Reihen im
+ *  DOM, Klick ueber Delegation, Poster mit loading="lazy".
+ *  Die Geometrie liegt in state.gridMeta[scope].
+ * ===================================================================== */
+
+state.gridMeta = {};
+
+function gridGeom(el, n) {
+    var breite = el.clientWidth || (window.innerWidth - 348);
+    var ZELLEN_W = 180;                 /* ~ .grid minmax(160px,1fr) + gap */
+    var cols = Math.max(3, Math.floor((breite - 16) / ZELLEN_W));
+    var cellW = Math.floor(breite / cols);
+    var itemW = cellW - 16;
+    var itemH = Math.round(itemW * 1.5) + 52;   /* Poster 2:3 + Titel */
+    var cellH = itemH + 16;
+    return { cols: cols, cellW: cellW, itemW: itemW, cellH: cellH, rows: Math.ceil(n / cols) };
+}
+
+function renderGridVirt(el, daten, scope, itemHtml) {
+    /* itemHtml(item, globalIndex) -> string; globalIndex = Position in daten */
+    var meta = gridGeom(el, daten.length);
+    state.gridMeta[scope] = meta;
+    var vorherScroll = el.scrollTop;
+    var vorherGi = null;
+    var a0 = document.activeElement;
+    if (a0 && a0.getAttribute && el.contains(a0)) vorherGi = a0.getAttribute("data-gi");
+
+    el.innerHTML = "";
+    var behaelter = document.createElement("div");
+    behaelter.className = "grid-virt";
+    behaelter.style.height = (meta.rows * meta.cellH) + "px";
+    el.appendChild(behaelter);
+
+    var letzteVon = -2, letzteBis = -2;
+    function zeichneBereich() {
+        var oben = el.scrollTop;
+        var hoehe = el.clientHeight || 700;
+        var reiheVon = Math.max(0, Math.floor(oben / meta.cellH) - 1);
+        var reiheBis = Math.min(meta.rows, reiheVon + Math.ceil(hoehe / meta.cellH) + 2);
+        var von = reiheVon * meta.cols;
+        var bis = Math.min(daten.length, reiheBis * meta.cols);
+        if (von === letzteVon && bis === letzteBis) return;
+        letzteVon = von; letzteBis = bis;
+        var aktivGi = null;
+        var a1 = document.activeElement;
+        if (a1 && a1.getAttribute) aktivGi = a1.getAttribute("data-gi");
+        var stueck = [];
+        for (var z = von; z < bis; z++) {
+            var reihe = Math.floor(z / meta.cols);
+            var spalte = z % meta.cols;
+            stueck.push('<div class="grid-item" tabindex="0" data-gi="' + z + '"' +
+                ' style="position:absolute;top:' + (reihe * meta.cellH) + 'px;left:' + (spalte * meta.cellW + 8) + 'px;width:' + meta.itemW + 'px">' +
+                itemHtml(daten[z], z) + '</div>');
+        }
+        behaelter.innerHTML = stueck.join("");
+        if (aktivGi) {
+            var wieder = behaelter.querySelector('.grid-item[data-gi="' + aktivGi + '"]');
+            if (wieder) { try { wieder.focus(); } catch (e) {} }
+        }
+    }
+
+    el.onscroll = zeichneBereich;
+    el.onclick = function (ev) {
+        var ziel = ev.target;
+        while (ziel && ziel !== el && !(ziel.classList && ziel.classList.contains("grid-item"))) {
+            ziel = ziel.parentNode;
+        }
+        if (!ziel || ziel === el) return;
+        var gi = parseInt(ziel.getAttribute("data-gi"), 10);
+        var item = daten[gi];
+        if (!item) return;
+        if (scope === "movies") openMovieDetail(item); else openSeriesDetail(item);
+    };
+    el.scrollTop = vorherScroll;
+    zeichneBereich();
+    if (vorherGi !== null && vorherGi < daten.length) {
+        var f = behaelter.querySelector('.grid-item[data-gi="' + vorherGi + '"]');
+        if (f) { try { f.focus(); } catch (e) {} }
+    }
+}
+
+/* 2D-Navigation im Gitter ueber den Daten-Index. Links/rechts in der
+   Reihe, hoch/runter um eine Spaltenzahl. Am linken Rand geht es in die
+   Kategorie-Spalte, am oberen Rand ins Suchfeld - wie bei den Sendern. */
+function navGrid(scope, delta, vertikal) {
+    var el = document.getElementById(scope === "movies" ? "movies-grid" : "series-grid");
+    var daten = scope === "movies" ? state.visibleMovies : state.visibleSeries;
+    if (!daten || !daten.length) return false;
+    var meta = state.gridMeta[scope] || gridGeom(el, daten.length);
+    var a = document.activeElement;
+    var gi = a && a.getAttribute ? parseInt(a.getAttribute("data-gi") || "-1", 10) : -1;
+    if (isNaN(gi) || gi < 0) {
+        var neu = el.querySelector(".grid-item");
+        if (neu) { fokusSetzen(neu); }
+        return true;
+    }
+    var reihe = Math.floor(gi / meta.cols), spalte = gi % meta.cols;
+    var ziel = gi;
+    if (!vertikal) {
+        if (delta < 0 && spalte === 0) {
+            /* linker Rand: zur Kategorie-Spalte */
+            var cl = fokusListe("vcats");
+            if (cl.length) { fokusSetzen(cl[0]); return true; }
+            return true;
+        }
+        ziel = gi + delta;
+        if (ziel < 0 || ziel >= daten.length || Math.floor(ziel / meta.cols) !== reihe) return true;
+    } else {
+        ziel = gi + delta * meta.cols;
+        if (ziel < 0) {
+            var sn = fokusListe("search");
+            if (sn.length) { fokusSetzen(sn[0]); return true; }
+            return true;
+        }
+        if (ziel >= daten.length) return true;
+    }
+    var zielTop = Math.floor(ziel / meta.cols) * meta.cellH;
+    var oben = el.scrollTop, hoehe = el.clientHeight || 700;
+    if (zielTop < oben) el.scrollTop = zielTop;
+    else if (zielTop + meta.cellH > oben + hoehe) el.scrollTop = zielTop + meta.cellH - hoehe;
+    if (el.onscroll) el.onscroll();
+    var w = el.querySelector('.grid-item[data-gi="' + ziel + '"]');
+    if (w) fokusSetzen(w);
+    return true;
+}
 
 function renderMovies() {
     var cats = document.getElementById("movies-categories");
@@ -1554,21 +1860,15 @@ function renderMovies() {
     if (state.selectedMovieCat !== null) shown = shown.filter(function (m) { return m.category_id === state.selectedMovieCat; });
     else shown = shown.filter(function (m) { return visibleCatIds.indexOf(m.category_id) >= 0; });
     if (q) shown = shown.filter(function (m) { return (m.name || "").toLowerCase().indexOf(q) >= 0; });
+    state.visibleMovies = shown;
 
     document.getElementById("movies-count").textContent = shown.length + " Filme";
-    var grid = document.getElementById("movies-grid");
-    grid.innerHTML = "";
-    shown.forEach(function (m) {
-        var d = document.createElement("div");
-        d.className = "grid-item";
+    renderGridVirt(document.getElementById("movies-grid"), shown, "movies", function (m) {
         var poster = m.stream_icon || m.direct_source || "";
         var rating = m.rating_5based && +m.rating_5based > 0 ? '★ ' + (+m.rating_5based).toFixed(1) : "";
-        d.innerHTML = '<div class="poster">' + (poster ? '<img src="' + esc(poster) + '" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">🎬</div>') +
+        return '<div class="poster">' + (poster ? '<img src="' + esc(poster) + '" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">🎬</div>') +
             (rating ? '<span class="rating">' + rating + '</span>' : '') + '</div>' +
             '<div class="grid-title">' + esc(m.name) + '</div>';
-        d.onclick = function () { openMovieDetail(m); };
-        d.tabIndex = 0;
-        grid.appendChild(d);
     });
 }
 
@@ -1597,18 +1897,12 @@ function renderSeries() {
     if (state.selectedSeriesCat !== null) shown = shown.filter(function (s) { return s.category_id === state.selectedSeriesCat; });
     else shown = shown.filter(function (s) { return visibleCatIds.indexOf(s.category_id) >= 0; });
     if (q) shown = shown.filter(function (s) { return (s.name || "").toLowerCase().indexOf(q) >= 0; });
+    state.visibleSeries = shown;
 
     document.getElementById("series-count").textContent = shown.length + " Serien";
-    var grid = document.getElementById("series-grid");
-    grid.innerHTML = "";
-    shown.forEach(function (s) {
-        var d = document.createElement("div");
-        d.className = "grid-item";
-        d.innerHTML = '<div class="poster">' + (s.cover ? '<img src="' + esc(s.cover) + '" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">📺</div>') + '</div>' +
+    renderGridVirt(document.getElementById("series-grid"), shown, "series", function (s) {
+        return '<div class="poster">' + (s.cover ? '<img src="' + esc(s.cover) + '" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">📺</div>') + '</div>' +
             '<div class="grid-title">' + esc(s.name) + '</div>';
-        d.onclick = function () { openSeriesDetail(s); };
-        d.tabIndex = 0;
-        grid.appendChild(d);
     });
 }
 
@@ -1628,7 +1922,7 @@ function openMovieDetail(m) {
     var canResume = resumePos > 30000;
     var rating = m.rating_5based && +m.rating_5based > 0 ? '★ ' + (+m.rating_5based).toFixed(1) : "";
     el.innerHTML = '<div class="detail-layout">' +
-        '<div class="detail-poster">' + (m.stream_icon ? '<img src="' + esc(m.stream_icon) + '">' : '<div class="poster-empty">🎬</div>') + '</div>' +
+        '<div class="detail-poster">' + (m.stream_icon ? '<img src="' + esc(m.stream_icon) + '" loading="lazy" decoding="async">' : '<div class="poster-empty">🎬</div>') + '</div>' +
         '<div class="detail-info">' +
         '<button class="btn-ghost" id="md-back">← Zurück</button>' +
         '<div class="detail-title">' + esc(m.name) + '</div>' +
@@ -1693,7 +1987,7 @@ function openSeriesDetail(serie) {
     show("view-series-detail");
     var el = document.getElementById("series-detail");
     el.innerHTML = '<div class="detail-layout">' +
-        '<div class="detail-poster">' + (serie.cover ? '<img src="' + esc(serie.cover) + '">' : '<div class="poster-empty">📺</div>') + '</div>' +
+        '<div class="detail-poster">' + (serie.cover ? '<img src="' + esc(serie.cover) + '" loading="lazy" decoding="async">' : '<div class="poster-empty">📺</div>') + '</div>' +
         '<div class="detail-info">' +
         '<button class="btn-ghost" id="sd-back">← Zurück</button>' +
         '<div class="detail-title">' + esc(serie.name) + '</div>' +
@@ -1975,28 +2269,41 @@ function cacheSeconds() {
     return Math.max(0, Math.min(60, n));
 }
 
-function hlsConfig() {
+function hlsConfig(kind) {
     var cs = cacheSeconds();
+    /* Der Fernseher hat rund 500 MB nutzbar (frei+cache) und der JS-Heap
+       endet bei 747 MB - die hls.js-Werkseinstellung (60 MB maxBufferSize,
+       30 s Puffer) plus App-Heap plus DOM uebersteigt das schnell. Kleiner
+       dimensionieren; der Puffer-Knopf in den Einstellungen skaliert.
+       WICHTIG: maxBufferLength/maxMaxBufferLength duerfen hier nur EINMAL
+       vorkommen - das Objektliteral hatte beide Keys doppelt, der zweite
+       Wert (12/30) hat die Einstellung still ueberschrieben. */
     return {
         enableWorker: true,
         lowLatencyMode: false,
-        backBufferLength: 30,
-        maxBufferSize: (cs > 0 ? Math.max(12, cs * 4) : 60) * 1000 * 1000,
-        maxBufferLength: cs > 0 ? Math.max(6, Math.round(cs * 1.5)) : 30,
-        maxMaxBufferLength: cs > 0 ? Math.max(12, cs * 3) : 60,
+        backBufferLength: 10,                       /* Live braucht keinen Rueckpuffer */
+        maxBufferSize: (cs > 0 ? Math.max(12, cs * 4) : 40) * 1000 * 1000,
+        maxBufferLength: cs > 0 ? Math.max(6, Math.round(cs * 1.5)) : 20,
+        maxMaxBufferLength: cs > 0 ? Math.max(12, cs * 3) : 40,
         /* Der Panel-Server liefert eine WACHSENDE Playlist, deren
            MEDIA-SEQUENCE immer 0 bleibt. hls.js haelt das fuer eine
            Event-Playlist und spielt ab Segment 0 - dessen Hash ist aber
            laengst abgelaufen (403). Deshalb: nur ein Segment Abstand zum
-           Live-Ende, damit sofort das NEUESTE Segment geholt wird. Die
-           aelteren werden im Hintergrund nachgezogen. */
+           Live-Ende, und startPosition:-1 springt sofort dorthin (siehe
+           startPlayback). */
         liveSyncDurationCount: 1,
         liveMaxLatencyDurationCount: 4,
-        maxBufferLength: 12,
-        maxMaxBufferLength: 30,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingMaxRetry: 6,
-        fragLoadingMaxRetry: 6
+        /* Schneller ans Bild: Manifest/Level schneller aufgeben und frueher
+           neu versuchen, statt bis zu 20 s auf Default-Timeouts zu warten. */
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingMaxRetry: 2,
+        manifestLoadingRetryDelay: 400,
+        levelLoadingTimeOut: 8000,
+        levelLoadingMaxRetry: 3,
+        levelLoadingRetryDelay: 500,
+        fragLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500
     };
 }
 
@@ -2055,7 +2362,9 @@ function wdReconnect() {
         try { state.hls.destroy(); } catch (e) {}
         state.hls = null;
     }
-    var hls = new Hls(hlsConfig());
+    var cfg = hlsConfig(cb.kind);
+    cfg.startPosition = -1;                 /* sofort ans Live-Ende */
+    var hls = new Hls(cfg);
     state.hls = hls;
     hls.loadSource(cb.url);
     hls.attachMedia(video);
@@ -2086,15 +2395,20 @@ function startPlayback() {
     }
 
     if (window.Hls && Hls.isSupported()) {
-        var hls = new Hls(hlsConfig());
+        var cfg = hlsConfig(cb.kind);
+        if (cb.kind === "live") cfg.startPosition = -1;
+        else if (cb.startPosMs > 0) cfg.startPosition = cb.startPosMs / 1000 - 0.5;
+        var hls = new Hls(cfg);
         state.hls = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
             /* Bild muss SOFORT kommen: startLoad(-1) laedt das letzte
                Segment der Playlist, statt vorne anzufangen und auf drei
-               Segmente zu warten. Der Rest wird im Hintergrund geholt. */
-            if (cb.kind === "live") { hls.startLoad(-1); }
+               Segmente zu warten; zusaetzlich zieht startPosition:-1 in
+               der Konfig direkt ans Live-Ende. Der Rest wird im
+               Hintergrund geholt. */
+            if (cb.kind === "live") { try { hls.startLoad(-1); } catch (e) {} }
             video.play().catch(function () {});
         });
         /* Bei wachsender Playlist ohne Sequenz-Fortschreibung rutscht die
@@ -2351,6 +2665,17 @@ function renderSettings() {
     document.getElementById("cache-status").textContent = cs === 0 ? "Automatik" : cs + " s";
     document.getElementById("wd-status").textContent =
         "Stillstands-Wächter aktiv · " + state.wd.reconnects + "× neu verbunden";
+    var mgEl = document.getElementById("memguard-status");
+    if (mgEl) {
+        var mg = state.memguard;
+        var teile = [];
+        teile.push(mg.timer ? "aktiv" : "aus");
+        if (mg.letztePct != null && mg.letztePct >= 0) teile.push("Heap " + mg.letztePct + " %");
+        if (mg.letzteNodes != null && mg.letzteNodes >= 0) teile.push(mg.letzteNodes + " Elemente");
+        teile.push(mg.bereinigungen + "× bereinigt");
+        mgEl.textContent = teile.join(" · ");
+        mgEl.style.color = (mg.bereinigungen > 0) ? "#FFC94D" : "#6FCF9F";
+    }
     var prof = state.activeProfile || "default";
     document.getElementById("about-status").textContent =
         "Smartys Player " + APP_VERSION + " (webOS) · Profil " + prof;
@@ -2389,6 +2714,151 @@ function cacheWeiter() {
     i = (i + 1) % CACHE_STUFEN.length;
     lsSet("cache_seconds", CACHE_STUFEN[i]);
     renderSettings();
+}
+
+/* =====================================================================
+ *  Speicherwaechter (v1.3.0)
+ *
+ *  Auf dem OLED65C17LB werden Apps bei knappem Speicher vom System
+ *  beendet — der Nutzer sieht dann einfach wieder das TV-Bild, ohne
+ *  Fehlermeldung. Also selber aufraeumen, BEVOR das System zuschlaegt.
+ *
+ *  Messkanaele (ein System-API ist mit einer Web-App nicht erreichbar):
+ *  1) performance.memory: JS-Heap gegen sein Limit (747 MB)
+ *  2) DOM-Knotenzahl: die native Seite des Speichers, die der Heap nicht
+ *     sieht (Bilder, Layout-Objekte)
+ *
+ *  Alle 10 Sekunden, Hintergrund, ohne Unterbrechung. Die Wiedergabe
+ *  (video/hls) wird NIE angefasst. Geraeumt wird: DOM nicht sichtbarer
+ *  Ansichten (Daten bleiben, Beim-Betreten-Neu-Rendern laeuft ueber
+ *  show() -> homeViewsFrisch()), Detail-HTML der verdeckten Detailseiten.
+ *  Kritisch zusaetzlich: das EPG-Datenobjekt verwerfen - es ist der
+ *  groesste Heap-Block und laedt sich verzoegert von allein neu.
+ * ===================================================================== */
+
+var MEM_WEICH_PCT = 62;      /* Heap-Anteil: sanfte Bereinigung */
+var MEM_KRITISCH_PCT = 82;   /* harte Bereinigung */
+var MEM_WEICH_NODES = 15000;
+var MEM_KRITISCH_NODES = 40000;
+
+function heapQuotePct() {
+    return (window.performance && performance.memory && performance.memory.jsHeapSizeLimit)
+        ? Math.round(performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit * 100)
+        : -1;
+}
+
+function memCleanup(stufe) {
+    var tab = state.tab || "live";
+    var imPlayer = state.currentView === "view-player";
+    var zuHause = state.currentView === "view-home";
+
+    /* DOM der VERDECKTEN Ansichten leeren. Die aktive Ansicht bleibt
+       stehen, damit der Nutzer nichts bemerkt. */
+    if (!zuHause || tab !== "live") {
+        var lc = document.getElementById("live-channels");
+        if (lc) lc.innerHTML = "";
+        var lk = document.getElementById("live-categories");
+        if (lk && !zuHause) lk.innerHTML = "";
+    }
+    if (!zuHause || tab !== "movies") {
+        var mg = document.getElementById("movies-grid");
+        if (mg) mg.innerHTML = "";
+    }
+    if (!zuHause || tab !== "series") {
+        var sg = document.getElementById("series-grid");
+        if (sg) sg.innerHTML = "";
+    }
+    if (!zuHause || tab !== "epg") {
+        var eg = document.getElementById("epg-grid");
+        if (eg) eg.innerHTML = "";
+    }
+    /* Detailansichten: enthalten grosse Poster; nur leeren, wenn verdeckt */
+    if (state.currentView !== "view-movie-detail") {
+        var md = document.getElementById("movie-detail");
+        if (md) md.innerHTML = "";
+    }
+    if (state.currentView !== "view-series-detail") {
+        var sd = document.getElementById("series-detail");
+        if (sd) sd.innerHTML = "";
+    }
+    /* Verdecktes Menue-Overlay */
+    var ov = document.getElementById("menu-overlay");
+    if (ov && ov.classList.contains("hidden")) {
+        var mb = document.getElementById("menu-body");
+        if (mb) mb.innerHTML = "";
+    }
+
+    if (stufe >= 2) {
+        /* EPG verwerfen (groesster Datenblock). Im Player loescht das
+           nur das OSD-Material; das Bild laeuft weiter. Nach einer
+           Beruhigungsphase laedt es der Timer unten still neu. */
+        state.xmltv = null;
+        state.epgRows = null;
+        var mg = state.memguard;
+        if (mg.reloadTimer) clearTimeout(mg.reloadTimer);
+        mg.reloadTimer = setTimeout(function () {
+            if (!state.xmltv) loadXmltv().then(function () {
+                if (state.tab === "epg" && state.currentView === "view-home") renderEpg();
+            }).catch(function () {});
+        }, 60000);
+    }
+
+    state.memguard.bereinigungen++;
+    state.memguard.stufe = stufe;
+    var mg2 = state.memguard;
+    mg2.letztePct = heapQuotePct();
+    mg2.letzteNodes = document.querySelectorAll("*").length;
+    mg2.letzte = Date.now();
+}
+
+function memguardTick() {
+    var pct = heapQuotePct();
+    var nodes = -1;
+    try { nodes = document.querySelectorAll("*").length; } catch (e) {}
+    var mg = state.memguard;
+    mg.letztePct = pct;
+    mg.letzteNodes = nodes;
+
+    var kritisch = (pct >= 0 && pct >= MEM_KRITISCH_PCT) || (nodes > 0 && nodes > MEM_KRITISCH_NODES);
+    var weich = (pct >= 0 && pct >= MEM_WEICH_PCT) || (nodes > 0 && nodes > MEM_WEICH_NODES);
+    if (kritisch) memCleanup(2);
+    else if (weich) memCleanup(1);
+}
+
+/* Nach dem Zurueckkehren auf die Hauptansicht sicherstellen, dass die
+   Listen nach einer Hintergrund-Bereinigung wieder da stehen. Die
+   Render-Funktionen sind virtualisiert und billiger geworden (je ~20
+   DOM-Zeilen), deshalb geht das bedenkenlos bei jedem Wechsel. */
+function homeViewsFrisch() {
+    if (state.channels && state.channels.length) {
+        var lc = document.getElementById("live-channels");
+        if (!lc || lc.childElementCount === 0) renderLiveChannels();
+        var lk = document.getElementById("live-categories");
+        if (!lk || lk.childElementCount === 0) renderLiveCategories();
+    }
+    var tab = state.tab;
+    if (tab === "movies" && state.vodMovies && state.vodMovies.length) {
+        var mg = document.getElementById("movies-grid");
+        if (!mg || mg.childElementCount === 0) renderMovies();
+    }
+    if (tab === "series" && state.seriesShows && state.seriesShows.length) {
+        var sg = document.getElementById("series-grid");
+        if (!sg || sg.childElementCount === 0) renderSeries();
+    }
+    if (tab === "epg") {
+        var eg = document.getElementById("epg-grid");
+        var leer = !eg || eg.childElementCount === 0;
+        if (state.xmltv) { if (leer) renderEpg(); }
+        else if (leer) {
+            eg.innerHTML = '<div class="epg-empty">EPG-Daten werden geladen…</div>';
+            loadXmltv().then(renderEpg).catch(function () { renderEpg(); });
+        }
+    }
+}
+
+function memGuardStart() {
+    if (state.memguard.timer) return;
+    state.memguard.timer = setInterval(memguardTick, 10000);
 }
 
 /* =====================================================================
@@ -2433,6 +2903,7 @@ function init() {
     screenSaverWaechter();
     document.getElementById("btn-settings").onclick = renderSettings;
     document.getElementById("btn-settings-back").onclick = function () { show("view-home"); };
+    memGuardStart();
     var btnLine = document.getElementById("btn-line");
     if (btnLine) {
         btnLine.onclick = function () {
@@ -2614,7 +3085,10 @@ function init() {
     }
 
     window.navVertikal = function (delta) {
-        if (fokusGruppe(document.activeElement) === "epg") return navEpg(delta, true);
+        var gruppe0 = fokusGruppe(document.activeElement);
+        if (gruppe0 === "epg") return navEpg(delta, true);
+        if (gruppe0 === "chans") return navChans(delta);
+        if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, true);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
         if (!gruppe) return ersterFokus() || true;   /* true = Taste verbraucht */
@@ -2705,7 +3179,9 @@ function init() {
     }
 
     window.navHorizontal = function (delta) {
-        if (fokusGruppe(document.activeElement) === "epg") return navEpg(delta, false);
+        var gruppe0 = fokusGruppe(document.activeElement);
+        if (gruppe0 === "epg") return navEpg(delta, false);
+        if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, false);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
         var reihenfolge = gruppe === "menu" ? ["menu"]

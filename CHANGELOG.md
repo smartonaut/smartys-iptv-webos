@@ -1,5 +1,38 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.3.0 — 22.11.2026
+
+Komplette Speicher- und Start-Überarbeitung für den LG OLED65C17LB
+(webOS 6.5, Chrome 79, 2,6 GB RAM — davon dauerhaft unter 200 MB frei).
+
+- **Senderliste virtualisiert**: vorher standen beim Start alle ~8.000
+  Sender als DOM-Elemente im Speicher (~24.000 Knoten, ~103 MB JS-Heap,
+  mehrsekundige Blockade). Jetzt liegen nur die sichtbaren Zeilen im DOM
+  — die Liste startet mit ~2.000 Knoten. Scroll-Position und Fokus bleiben
+  bei jedem Neu-Aufbau erhalten.
+- **Filme-/Serien-Gitter virtualisiert**: statt bis zu ~29.000 Poster-
+  Elementen auf einen Schlag werden nur die sichtbaren Reihen gebaut;
+  Poster laden mit `loading="lazy"` erst, wenn sie wirklich auftauchen.
+  Klicks laufen über einen zentralen Handler (keine Closures mehr pro
+  Element).
+- **EPG-Fenster begrenzt** (−6 h bis +30 h): das XMLTV-Vollprogramm über
+  mehrere Tage erzeugte hunderttausende Objekte im Heap; Rohtext und
+  XML-Dokument werden nach dem Parsen sofort für den Garbage Collector
+  freigegeben.
+- **Speicherwächter** (Hintergrund, alle 10 s): misst JS-Heap und DOM-
+  Knotenzahl; ab 62 % bzw. 15.000 Knoten werden verdeckte Ansichten
+  geleert, ab 82 % bzw. 40.000 Knoten wird zusätzlich das EPG-Datenobjekt
+  verworfen (lädt nach 60 s still neu). Läuft ohne Unterbrechung — die
+  Wiedergabe wird nie angefasst. Status in Einstellungen → Speicher-Wächter.
+- **Wiedergabestart beschleunigt**: `startPosition: -1` springt sofort
+  ans Live-Ende, Manifest/Level-Timeouts und Retries verkürzt (8 s/
+  2–3 Versuche), Rückpuffer von 30 s auf 10 s gesenkt.
+- **Puffer-Bug behoben**: `maxBufferLength`/`maxMaxBufferLength` standen
+  zweimal in der hls.js-Konfiguration — die zweite Angabe (12/30 s) hat
+  die Einstellung aus den Einstellungen still überschrieben. Der
+  Puffer-Knopf wirkt jetzt tatsächlich; Standard-Puffer ist auf
+  TV-Größe gesenkt (40 MB statt 60 MB, 20 s statt 30 s).
+
 ## 1.2.1 — 29.10.2026
 
 **Stabile Player-ID (PLAYER-IDENTITY.md v1).** Neue Installationen leiten die
