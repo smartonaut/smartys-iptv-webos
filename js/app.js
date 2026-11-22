@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.14";
+var APP_VERSION = "1.5.16";
 
 var state = {
     playerId: null,
@@ -2183,7 +2183,7 @@ function movieYear(m) {
 function openMovieDetail(m) {
     show("view-movie-detail");
     var el = document.getElementById("movie-detail");
-    var resumePos = state.resume["movie:" + m.stream_id] || 0;
+    var resumePos = state.resume["vod:movie:" + m.stream_id] || 0;   /* 1.5.15: gleicher Schluessel wie Speichern */
     var canResume = resumePos > 30000;
     var rating = m.rating_5based && +m.rating_5based > 0 ? '★ ' + (+m.rating_5based).toFixed(1) : "";
     el.innerHTML = '<div class="detail-hero"><img id="hero-img" src="' + esc(m.stream_icon || "") + '" loading="lazy" decoding="async" alt=""><div class="hero-shade"></div></div>' +
@@ -2216,11 +2216,24 @@ function openMovieDetail(m) {
     }, 130);
 
     document.getElementById("md-back").onclick = function () { show("view-home"); activateTab("movies"); };
+    /* 1.5.15: Fortsetzen mit Rueckfrage (ab gespeicherter Position oder
+       von vorne) - und der Positionsschluessel ist "vod:movie:..." wie
+       beim Speichern (vorher "movie:..." - Fortsetzen schien zu fehlen). */
+    function filmSpiel(wo) {
+        playVod(movieUrl(m.stream_id, m.container_extension || "mp4"), m.name, "vod:movie:" + m.stream_id, wo);
+        lsSet(profileScope("resume"), state.resume);
+    }
     document.getElementById("md-play").onclick = function () {
-        playVod(movieUrl(m.stream_id, m.container_extension || "mp4"), m.name, "vod:movie:" + m.stream_id, canResume ? resumePos : 0);
+        if (canResume) {
+            frageFortsetzen(m.name, resumePos, function () { filmSpiel(resumePos); }, function () {
+                delete state.resume["vod:movie:" + m.stream_id]; lsSet(profileScope("resume"), state.resume); filmSpiel(0);
+            });
+        } else {
+            playVod(movieUrl(m.stream_id, m.container_extension || "mp4"), m.name, "vod:movie:" + m.stream_id, 0);
+        }
     };
     if (canResume) document.getElementById("md-restart").onclick = function () {
-        delete state.resume["movie:" + m.stream_id]; lsSet(profileScope("resume"), state.resume);
+        delete state.resume["vod:movie:" + m.stream_id]; lsSet(profileScope("resume"), state.resume);
         playVod(movieUrl(m.stream_id, m.container_extension || "mp4"), m.name, "vod:movie:" + m.stream_id, 0);
     };
     /* Nur Verweise, kein Scraping (filmstarts.de sperrt /suchen/ per robots.txt) */
@@ -3015,11 +3028,40 @@ function startSeason(show, seasonKey, episodes) {
     playQueueItem();
 }
 
+/* 1.5.15: Fortsetzen-Rueckfrage - "Fortsetzen ab ..." oder "Von vorne".
+   Nutzt das Verwaltungs-Overlay (#menu-overlay), dessen Steuerkreuz-Nav
+   laeuft automatisch. */
+window.frageFortsetzen = function (titel, ms, weiterFn, vorneFn) {
+    var s = Math.floor(ms / 1000);
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    var zeit = (h ? h + ":" + (m < 10 ? "0" : "") + m : String(m)) + ":" + (sec < 10 ? "0" : "") + sec;
+    var t = document.getElementById("menu-title");
+    t.textContent = "Fortsetzen";
+    var body = document.getElementById("menu-body");
+    body.innerHTML = '<div class="menu-note">' + esc(titel) + ' ist bei <b>' + esc(zeit) + '</b> gespeichert.</div>' +
+        '<div><button class="menu-btn primary" id="ff-weiter">▶ Fortsetzen ab ' + esc(zeit) + '</button>' +
+        '<button class="menu-btn" id="ff-vorne">↺ Von vorne abspielen</button>' +
+        '<button class="menu-btn mini" id="ff-abbrechen">Abbrechen</button></div>';
+    document.getElementById("ff-weiter").onclick = function () { closeMenu(); weiterFn(); };
+    document.getElementById("ff-vorne").onclick = function () { closeMenu(); vorneFn(); };
+    document.getElementById("ff-abbrechen").onclick = function () { closeMenu(); };
+    document.getElementById("menu-overlay").classList.remove("hidden");
+    fokusSetzen(document.getElementById("ff-weiter"));
+};
+
 function playQueueItem() {
     var item = state.queue[state.queueIdx];
     if (!item) { state.queue = []; state.queueIdx = -1; show("view-home"); return; }
     var pos = state.resume["vod:series:" + item.id] || 0;
     if (pos < 30000) pos = 0;
+    /* 1.5.15: gespeicherte Position abfragen, nicht stumm weiterspielen. */
+    if (pos >= 30000) {
+        frageFortsetzen(item.title, pos, function () { playVod(seriesUrl(item.id, item.ext), item.title, "vod:series:" + item.id, pos); }, function () {
+            delete state.resume["vod:series:" + item.id]; lsSet(profileScope("resume"), state.resume);
+            playVod(seriesUrl(item.id, item.ext), item.title, "vod:series:" + item.id, 0);
+        });
+        return;
+    }
     playVod(seriesUrl(item.id, item.ext), item.title, "vod:series:" + item.id, pos);
 }
 
@@ -4256,6 +4298,18 @@ function init() {
     }
 
     window.navVertikal = function (delta) {
+        /* 1.5.15: ein offenes Overlay (Frage/QR/Verwaltung) hat Vorrang -
+           vorher griff der Detail-/Settings-Zweig und der Fokus humpelte
+           hinter dem Overlay weiter. */
+        var ov0 = document.getElementById("menu-overlay");
+        if (ov0 && !ov0.classList.contains("hidden")) {
+            var ml0 = fokusListe("menu");
+            if (!ml0.length) return true;
+            var mi0 = ml0.indexOf(document.activeElement);
+            var zi0 = mi0 < 0 ? (delta > 0 ? 0 : ml0.length - 1) : Math.max(0, Math.min(ml0.length - 1, mi0 + delta));
+            fokusSetzen(ml0[zi0]);
+            return true;
+        }
         if (state.currentView === "view-groups") return navGrp(delta);
         if (state.currentView === "view-settings") return navSettings(delta);   /* 1.5.6 */
         if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail")
@@ -4421,6 +4475,10 @@ function init() {
            Spaltenwechsel - die Pfeiltasten dort sind untaetig, alles
            laeuft hoch/runter. */
         if (state.currentView === "view-groups") return navGrpX(delta);   /* 1.5.4 */
+        /* 1.5.15: Overlay offen -> horizontal still (die Overlay-Knoepfe
+           stehen untereinander, UP/DOWN reicht). */
+        var ovx = document.getElementById("menu-overlay");
+        if (ovx && !ovx.classList.contains("hidden")) return true;
         if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail") {
             /* 1.5.12: die Hero-Knoepfe liegen NEBENEINANDER - left/rechts
                laufen durch die Detail-Knopf-Zeile (vorher still - Smarty
