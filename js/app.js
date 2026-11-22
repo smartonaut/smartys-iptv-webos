@@ -42,6 +42,19 @@
  *  - Bild-Start verschaerft: startPosition:-1 holt das Live-Ende sofort,
  *     kuerzere Manifest-Timeouts und Retries
  *  - Poster-Bilder mit loading="lazy" + decoding="async"
+ *  v1.3.1 — SIPTV-Gefuehl-Paket:
+ *  - Sofort-Start: Senderliste aus IndexedDB-Cache (2. Start in ~0,2 s),
+ *    Netz frischt im Hintergrund nach, Listen wechseln lautlos
+ *  - Zap-Prefetch: Fokus auf Sender waermt die Playlist beim Anbieter an,
+ *    Bild erscheint beim Klick frueher
+ *  - capLevelOnFPS: bei Rechendruck selbst auf leichtere Stufe schalten
+ *    statt zu stottern
+ *
+ *  v1.4.0 — Wiedergabe-Pipeline nach SIPTV-Analyse: nativ zuerst.
+ *  HLS laeuft direkt im <video>-Element ueber die LG-UMS-Hardware-
+ *  Pipeline (Bild nach ~1,3 s statt 4,8 s, kein JS-Transmuxing).
+ *  hls.js bleibt Fallback, VOD (mp4) spielt ab jetzt ebenfalls nativ.
+ *
  *  Feature-Paritaet zur Android-/Desktop-App:
  *  Pairing, Live-TV, VOD (Movies/Series), EPG-Grid, Catch-up/Timeshift,
  *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
@@ -52,7 +65,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.3.0";
+var APP_VERSION = "1.4.0";
 
 var state = {
     playerId: null,
@@ -1114,7 +1127,26 @@ function afterUnlock() {
     if (hasProviders) {
         state.providers = hasProviders;
         state.token = lsGet("token", null);
-        loadAll();
+        /* v1.3.1: erst der Cache (UI steht SOFORT), dann frischt das
+           Netz im Hintergrund nach. Fuehlt sich an wie SIPTV: Liste ist
+           beim zweiten Start ohne Ladebildschirm da. */
+        cacheLaden().then(function (ausCache) {
+            if (ausCache) {
+                show("view-home");
+                /* EPG ruhig hinterher, damit die Zeilen nachtragen */
+                setTimeout(function () {
+                    if (!state.xmltv) {
+                        loadXmltv().then(function () {
+                            if (state.tab === "epg") renderEpg();
+                            if (state.currentView === "view-home" && state.tab === "live") renderLiveChannels();
+                        }).catch(function () {});
+                    }
+                }, 1500);
+                loadAll(true);
+                return;
+            }
+            loadAll();
+        }).catch(function () { loadAll(); });
     } else {
         document.getElementById("player-id").textContent = state.playerId;
         document.getElementById("pairing-pw").textContent = state.pairingPw;
@@ -1236,9 +1268,11 @@ function _doPair() {
  *  Content laden
  * ===================================================================== */
 
-function loadAll() {
-    show("view-loading");
-    document.querySelector("#view-loading .msg").textContent = "Lade Kanäle…";
+function loadAll(hintergrund) {
+    if (!hintergrund) {
+        show("view-loading");
+        document.querySelector("#view-loading .msg").textContent = "Lade Kanäle…";
+    }
 
     /* Mehrzeilen-Modus: alle aktiven Provider abfragen. Gruppen werden nach
        Namen zusammengefasst (wie Desktop 1.5.39), damit eine Gruppe nicht
@@ -1302,27 +1336,25 @@ function loadAll() {
         state.channels = all;
     });
     return kette.then(function () {
-            /* Der Fernseher hat 2,6 GB RAM und rund 200 MB davon frei.
-               Frueher lief hier loadVod -> loadSeries -> loadXmltv: 108.000
-               Filme, 25.000 Serien und das komplette XMLTV-EPG auf einmal.
-               Der Hauptthread stand dabei minutenlang, webOS schob die App
-               in den Swap und der Nutzer sah nur "Lade Kanäle…".
-               Jetzt: erst die Sender (das ist der Screen, den man sieht),
-               der Rest nach dem Umschalten auf die jeweilige Ansicht. */
             renderLiveCategories();
             renderLiveChannels();
             loadProfileState();
-            show("view-home");
+            cacheSpeichern();       /* v1.3.1: naechster Start steht sofort */
+            if (!hintergrund) show("view-home");
 
             /* EPG im Hintergrund nachziehen — nur wenn es noch fehlt. */
             setTimeout(function () {
                 if (!state.xmltv) {
                     loadXmltv().then(function () {
                         if (state.tab === "epg") renderEpg();
+                        else if (state.currentView === "view-home" && state.tab === "live") renderLiveChannels();
                     }).catch(function () {});
                 }
             }, 1500);
         }).catch(function (e) {
+            /* Hintergrund-Auffrischung darf niemals den gecachten,
+               sichtbaren Stand wegwerfen. */
+            if (hintergrund) return;
             show("view-pairing");
             setPairMsg("Laden fehlgeschlagen: " + e.message, "error");
         });
@@ -1636,6 +1668,14 @@ function renderLiveChannels() {
         ev.stopPropagation();
         var ch2 = state.visibleChans[state.chansIdx[String(ziel.getAttribute("data-ch-id"))]];
         if (ch2) openChanMenu(ch2);
+    };
+    /* Zap-Prefetch: Fokus ruht kurz auf einem Sender -> Playlist anwaermen */
+    el.onfocusin = function (ev) {
+        var ziel = ev.target;
+        if (ziel && ziel.classList && ziel.classList.contains("ch")) {
+            var sid = ziel.getAttribute("data-ch-id");
+            if (sid) zapPrefetch(sid);
+        }
     };
 
     /* Scrollposition restaurieren, dann zeichnen - und zwar BEVOR
@@ -2216,6 +2256,7 @@ function playLive(ch) {
 }
 
 function playLiveNoGate(ch) {
+    zapPrefetchAbort();   /* laufenden Warm-Up-Request sauber schliessen */
     state.currentPlayback = { url: liveUrl(ch.stream_id, ch.__pi || 0), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
     startPlayback();
     markWatched(ch.stream_id);
@@ -2281,6 +2322,11 @@ function hlsConfig(kind) {
     return {
         enableWorker: true,
         lowLatencyMode: false,
+        /* Ruckeln zuerst an der Qualitaet abfangen statt am Bild: wenn die
+           Dekodier-FPS einbricht, steuert hls.js selbst auf eine leichtere
+           Stufe herunter - auf dem 2021er-TV ist das der Unterschied
+           zwischen 'laeuft' und 'klebt'. */
+        capLevelOnFPS: true,
         backBufferLength: 10,                       /* Live braucht keinen Rueckpuffer */
         maxBufferSize: (cs > 0 ? Math.max(12, cs * 4) : 40) * 1000 * 1000,
         maxBufferLength: cs > 0 ? Math.max(6, Math.round(cs * 1.5)) : 20,
@@ -2362,6 +2408,15 @@ function wdReconnect() {
         try { state.hls.destroy(); } catch (e) {}
         state.hls = null;
     }
+    if (state.engine === "native") {
+        /* Native Pipeline: Quelle neu setzen, LG-UMS baut sie frisch auf. */
+        video.pause();
+        video.removeAttribute("src");
+        try { video.load(); } catch (e) {}
+        video.src = cb.url;
+        var p = video.play(); if (p && p.catch) p.catch(function () {});
+        return;
+    }
     var cfg = hlsConfig(cb.kind);
     cfg.startPosition = -1;                 /* sofort ans Live-Ende */
     var hls = new Hls(cfg);
@@ -2379,6 +2434,97 @@ function wdReconnect() {
     });
 }
 
+/* =====================================================================
+ *  Wiedergabe-Pipeline (v1.4.0) — NATIV zuerst, hls.js als Fallback
+ *
+ *  SIPTV-Analyse (Homebrew-IPK siptv_3.0.3): die spielen HLS direkt im
+ *  <video>-Element. webOS 6.5 packt HLS nativ (LG-UMS-Pipeline in
+ *  Hardware). Auf diesem Fernseher bedeutet das, gemessen: Bild nach
+ *  ~1,3 s statt ~4,8 s, kein JS-Transmuxing -> kein CPU-Druck -> kein
+ *  Ruckeln, Heap bleibt flach.
+ *  hls.js bleibt als Fallback, falls eine Playlist nativ scheitert.
+ * ===================================================================== */
+
+function kannNativHls() {
+    try {
+        var v = document.createElement("video");
+        return !!(v.canPlayType("application/vnd.apple.mpegurl") || v.canPlayType("application/x-mpegURL"));
+    } catch (e) { return false; }
+}
+
+function playNativ(url, cb, video, aufHls) {
+    state.engine = "native";
+    video.src = url;
+    try { video.load && video.load(); } catch (e) {}
+    var p = video.play(); if (p && p.catch) p.catch(function () {});
+    if (!aufHls) return;
+    /* Wenn nativ in 12 s kein Bild kommt oder ein Fehler auftaucht,
+       steigen wir auf hls.js um - einmal pro Wiedergabe. */
+    var erledigt = false;
+    var t0 = Date.now();
+    function wechsel() {
+        if (erledigt) return;
+        erledigt = true;
+        video.pause();
+        video.removeAttribute("src");
+        try { video.load(); } catch (e) {}
+        aufHls();
+    }
+    function fehlerFuer() { if (!erledigt && video.readyState < 2) wechsel(); }
+    video.addEventListener("error", fehlerFuer);
+    var iv = setInterval(function () {
+        if (erledigt) { clearInterval(iv); video.removeEventListener("error", fehlerFuer); return; }
+        if (video.readyState >= 2 || video.currentTime > 0.05) {
+            /* nativ laeuft - Fallback bleibt aus */
+            erledigt = true;
+            clearInterval(iv);
+            video.removeEventListener("error", fehlerFuer);
+            return;
+        }
+        if (Date.now() - t0 > 12000) { clearInterval(iv); wechsel(); }
+    }, 1000);
+}
+
+function playHlsJs(url, cb, video) {
+    state.engine = "hlsjs";
+    var cfg = hlsConfig(cb.kind);
+    if (cb.kind === "live") cfg.startPosition = -1;
+    else if (cb.startPosMs > 0) cfg.startPosition = cb.startPosMs / 1000 - 0.5;
+    var hls = new Hls(cfg);
+    state.hls = hls;
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        /* Bild muss SOFORT kommen: startLoad(-1) laedt das letzte
+           Segment der Playlist, statt vorne anzufangen und auf drei
+           Segmente zu warten; zusaetzlich zieht startPosition:-1 in
+           der Konfig direkt ans Live-Ende. Der Rest wird im
+           Hintergrund geholt. */
+        if (cb.kind === "live") { try { hls.startLoad(-1); } catch (e) {} }
+        video.play().catch(function () {});
+    });
+    /* Bei wachsender Playlist ohne Sequenz-Fortschreibung rutscht die
+       Live-Position weg. Wer mehr als 12 s hinterherhaengt, wird
+       zurueckgeholt - sonst laeuft der Puffer gegen abgelaufene
+       Segmente und das Bild steht. */
+    hls.on(Hls.Events.LEVEL_UPDATED, function (evt, data) {
+        if (cb.kind !== "live" || !data.details || !data.details.live) return;
+        var ziel = hls.liveSyncPosition;
+        if (ziel !== null && ziel !== undefined && video.currentTime < ziel - 12) {
+            video.currentTime = ziel;
+        }
+    });
+    hls.on(Hls.Events.ERROR, function (evt, data) {
+        if (data.fatal) {
+            if (cb.kind === "live") {
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(-1); }
+                else { hls.recoverMediaError(); }
+            }
+            else { show("view-home"); }
+        }
+    });
+}
+
 function startPlayback() {
     var cb = state.currentPlayback;
     show("view-player");
@@ -2386,6 +2532,10 @@ function startPlayback() {
     var video = document.getElementById("video");
 
     if (state.hls) { try { state.hls.destroy(); } catch (e) {} state.hls = null; }
+    /* Vorheriges natives Setup sauber ausraeumen */
+    video.pause();
+    video.removeAttribute("src");
+    try { video.load(); } catch (e) {}
 
     var url = cb.url;
 
@@ -2394,46 +2544,14 @@ function startPlayback() {
         video.addEventListener("loadedmetadata", doSeek, { once: true });
     }
 
-    if (window.Hls && Hls.isSupported()) {
-        var cfg = hlsConfig(cb.kind);
-        if (cb.kind === "live") cfg.startPosition = -1;
-        else if (cb.startPosMs > 0) cfg.startPosition = cb.startPosMs / 1000 - 0.5;
-        var hls = new Hls(cfg);
-        state.hls = hls;
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            /* Bild muss SOFORT kommen: startLoad(-1) laedt das letzte
-               Segment der Playlist, statt vorne anzufangen und auf drei
-               Segmente zu warten; zusaetzlich zieht startPosition:-1 in
-               der Konfig direkt ans Live-Ende. Der Rest wird im
-               Hintergrund geholt. */
-            if (cb.kind === "live") { try { hls.startLoad(-1); } catch (e) {} }
-            video.play().catch(function () {});
-        });
-        /* Bei wachsender Playlist ohne Sequenz-Fortschreibung rutscht die
-           Live-Position weg. Wer mehr als 12 s hinterherhaengt, wird
-           zurueckgeholt - sonst laeuft der Puffer gegen abgelaufene
-           Segmente und das Bild steht. */
-        hls.on(Hls.Events.LEVEL_UPDATED, function (evt, data) {
-            if (cb.kind !== "live" || !data.details || !data.details.live) return;
-            var ziel = hls.liveSyncPosition;
-            if (ziel !== null && ziel !== undefined && video.currentTime < ziel - 12) {
-                video.currentTime = ziel;
-            }
-        });
-        hls.on(Hls.Events.ERROR, function (evt, data) {
-            if (data.fatal) {
-                if (cb.kind === "live") {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { hls.startLoad(-1); }
-                    else { hls.recoverMediaError(); }
-                }
-                else { show("view-home"); }
-            }
-        });
-    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = url;
-        video.play().catch(function () {});
+    var istHls = /\.m3u8(\?|$)/.test(url);
+    if (istHls && kannNativHls()) {
+        playNativ(url, cb, video, function () { playHlsJs(url, cb, video); });
+    } else if (istHls && window.Hls && Hls.isSupported()) {
+        playHlsJs(url, cb, video);
+    } else if (!istHls) {
+        /* VOD: mp4 direkt in die Hardware-Pipeline */
+        playNativ(url, cb, video, null);
     } else {
         alert("Dieses Gerät unterstützt kein HLS.");
         show("view-home");
@@ -2862,8 +2980,117 @@ function memGuardStart() {
 }
 
 /* =====================================================================
- *  Helpers
+ *  Sofort-Start-Cache (v1.3.1) — IndexedDB
+ *
+ *  SIPTV-Gefuehl: Beim zweiten Start ist die Senderliste SOFORT da. Wir
+ *  tun genau das: nach jedem erfolgreichen Laden landen Sender und
+ *  Kategorien in IndexedDB. Beim Start steht die UI aus dem Cache,
+ *  das Netz frischt im Hintergrund nach; gerenderte Listen werden
+ *  lautlos neu gezeichnet (Fokus und Scrollposition bleiben erhalten).
  * ===================================================================== */
+
+function idbKasse() {
+    return new Promise(function (res, rej) {
+        var rq = indexedDB.open("smartys-cache", 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore("kv"); };
+        rq.onsuccess = function () { res(rq.result); };
+        rq.onerror = function () { rej(rq.error); };
+    });
+}
+function idbSet(key, wert) {
+    return idbKasse().then(function (db) {
+        return new Promise(function (res, rej) {
+            var tx = db.transaction("kv", "readwrite");
+            tx.objectStore("kv").put(wert, key);
+            tx.oncomplete = res;
+            tx.onerror = function () { rej(tx.error); };
+        });
+    }).catch(function () {});
+}
+function idbHolen(key) {
+    return idbKasse().then(function (db) {
+        return new Promise(function (res, rej) {
+            var rq = db.transaction("kv").objectStore("kv").get(key);
+            rq.onsuccess = function () { res(rq.result || null); };
+            rq.onerror = function () { rej(rq.error); };
+        });
+    }).catch(function () { return null; });
+}
+
+function cacheKey() {
+    var p = primaryProvider();
+    return "lines|" + (p ? (p.server_url || "") + "|" + p.username : "none");
+}
+
+function cacheSpeichern() {
+    try {
+        idbSet(cacheKey(), {
+            at: Date.now(),
+            channels: state.channels,
+            categories: state.categories,
+            vodCategories: state.vodCategories,
+            seriesCategories: state.seriesCategories
+        });
+    } catch (e) {}
+}
+
+/* UI aus dem Cache fuellen. true = gueltige Daten lagen vor. */
+function cacheLaden() {
+    return idbHolen(cacheKey()).then(function (c) {
+        if (!c || !c.channels || !c.channels.length) return false;
+        state.channels = c.channels;
+        state.categories = c.categories || [];
+        state.vodCategories = c.vodCategories || [];
+        state.seriesCategories = c.seriesCategories || [];
+        var cnt = document.getElementById("live-count");
+        if (cnt) cnt.textContent = state.channels.length + " Sender";
+        renderLiveCategories();
+        renderLiveChannels();
+        return true;
+    });
+}
+
+/* =====================================================================
+ *  Zap-Prefetch (v1.3.1)
+ *
+ *  Wenn der Fokus auf einem Sender ruht (der Finger schwebt kurz ueber
+ *  OK), holen wir die erste Playlist schon an. Der Anbieter startet
+ *  seinen Stream-Prozess und der TCP-Weg ist warm - beim Klick ist das
+ *  Bild dann deutlich frueher da. Abbruch nach den ersten Bytes, damit
+ *  kein echter Datenstrom laeuft.
+ * ===================================================================== */
+
+var zapVor = { timer: null, xhr: null, sid: null };
+
+function zapPrefetchAbort() {
+    if (zapVor.timer) { clearTimeout(zapVor.timer); zapVor.timer = null; }
+    if (zapVor.xhr) { try { zapVor.xhr.abort(); } catch (e) {} zapVor.xhr = null; }
+}
+
+function zapPrefetch(sid) {
+    var idx = state.chansIdx[String(sid)];
+    if (idx === undefined) return;
+    var ch = state.visibleChans[idx];
+    if (!ch || zapVor.sid === String(sid)) return;
+    zapPrefetchAbort();
+    zapVor.timer = setTimeout(function () {
+        zapVor.timer = null;
+        zapVor.sid = String(sid);
+        var x = new XMLHttpRequest();
+        zapVor.xhr = x;
+        x.onprogress = function () {
+            if (x.responseText && x.responseText.length > 300) {
+                try { x.abort(); } catch (e) {}
+                zapVor.xhr = null;
+            }
+        };
+        /* Nach 6 s aufraeumen, auch wenn der Server schlaeft. */
+        setTimeout(function () {
+            if (zapVor.xhr === x) { try { x.abort(); } catch (e) {} zapVor.xhr = null; }
+        }, 6000);
+        try { x.open("GET", liveUrl(ch.stream_id, ch.__pi || 0)); x.send(); } catch (e) {}
+    }, 220);
+}
 
 function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

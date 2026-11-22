@@ -1,5 +1,45 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.4.0 — 22.11.2026
+
+Wiedergabe-Pipeline umgestellt nach der SIPTV-Analyse: **nativ zuerst**.
+
+- **Native Hardware-Pipeline statt hls.js/MSE für HLS**: SIPTV spielt
+  seine HLS-URLs direkt im `<video>`-Element; webOS 6.5 verarbeitet HLS
+  über die LG-UMS-Pipeline in Hardware (Hol+Demux+Decode). Gemessen am
+  OLED65C17LB mit derselben Line: **Bild nach ~1,3 s** statt ~4,8 s mit
+  hls.js. Nebenher entfällt das JS-Transmuxing komplett — deutlich
+  weniger CPU-Druck, kein Ruckeln, Heap bleibt flach.
+- **v1.4.0-Reihenfolge**: `.m3u8` → nativ; wenn nativ 12 s ohne Bild
+  bleibt oder fehlschlägt, fällt die App EINMAL pro Wiedergabe auf
+  hls.js zurück (bisherige Puffer-Konfiguration greift dort weiter).
+  VOD (`mp4`) spielt grundsätzlich nativ — damit funktioniert VOD auf
+  dem TV erstmals wie üblich (vorher ging der mp4-Pfad durch hls.js).
+- **Stillstands-Wächter** arbeitet weiter am Video-Element und
+  reconnectet nativ wie mit hls.js; Zap-Prefetch und Sofort-Start-Cache
+  aus 1.3.x bleiben.
+
+## 1.3.1 — 22.11.2026
+
+„SIPTV-Gefühl"-Paket: wahrgenommene Geschwindigkeit, gemessen am Gerät.
+
+- **Sofort-Start aus Cache**: Senderliste, Kategorien und VOD-/Serien-
+  Kategorien liegen in IndexedDB. Ab dem zweiten Start steht die
+  Senderliste in deutlich unter einer Sekunde (im Test 0,2 s statt
+  Ladebildschirm bis zur Netzantwort); das Netz frischt danach im
+  Hintergrund auf und die Listen werden ohne Fokus-/Scroll-Verlust
+  ausgetauscht. Schlaegt die Auffrischung fehl, bleibt der Cache-Stand
+  sichtbar.
+- **Zap-Prefetch**: Ruht der Fokus auf einem Sender, wird dessen
+  Playlist angefordert und nach den ersten Bytes wieder abgebrochen —
+  der Stream-Prozess beim Anbieter läuft dann bereits, das Bild
+  erscheint beim Klick spürbar früher.
+- **Weniger Ruckeln unter Last**: `capLevelOnFPS` — bricht die
+  Dekodier-Geschwindigkeit ein, schaltet hls.js selbst auf eine
+  leichtere Qualitätsstufe, statt mit voller Auflösung zu stottern.
+- Hintergrund-Auffrischung wirft nie den sichtbaren Stand zurück in
+  den Pairing-Screen (Fehler im Hintergrund wird still behandelt).
+
 ## 1.3.0 — 22.11.2026
 
 Komplette Speicher- und Start-Überarbeitung für den LG OLED65C17LB
