@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.12";
+var APP_VERSION = "1.5.14";
 
 var state = {
     playerId: null,
@@ -2086,7 +2086,16 @@ function renderMovies() {
     all.className = "cat" + (state.selectedMovieCat === null ? " active" : "");
     all.tabIndex = 0;   /* 1.5.7: sonst ist die Kategorie per Steuerkreuz nie fokusierbar */
     all.textContent = "Alle Filme";
-    all.onclick = function () { state.selectedMovieCat = null; renderMovies(); };
+    /* 1.5.13: nach dem Klick steht der Fokus im Stream-Raster (so will
+       es Smarty: Gruppe markieren -> direkt in den Streams). Render
+       ersetzt die Knoten, vorher fiel der Fokus auf den Body. Fallback:
+       zurueck auf die gewaehlte Gruppe. */
+    function katFokus(id) {
+        var zi = fokusListe("grid")[0]
+            || (id !== null ? document.querySelector('#movies-categories .cat[data-mcat-id="' + id + '"]') : fokusListe("vcats")[0]);
+        if (zi) fokusSetzen(zi);
+    }
+    all.onclick = function () { state.selectedMovieCat = null; renderMovies(); katFokus(null); };
     cats.appendChild(all);
     var mprefs = makeCatPrefs("movies");
     mprefs.applyTo(state.vodCategories).forEach(function (c) {
@@ -2095,7 +2104,7 @@ function renderMovies() {
         d.tabIndex = 0;   /* 1.5.7: Fokus-Spieler */
         d.setAttribute("data-mcat-id", c.category_id);
         d.textContent = mprefs.labelOf(c);
-        d.onclick = function () { if (window.__lpFlag) return; state.selectedMovieCat = c.category_id; renderMovies(); };
+        d.onclick = function () { if (window.__lpFlag) return; state.selectedMovieCat = c.category_id; renderMovies(); katFokus(c.category_id); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("movies", c, 0); };
         cats.appendChild(d);
     });
@@ -2126,7 +2135,13 @@ function renderSeries() {
     all.className = "cat" + (state.selectedSeriesCat === null ? " active" : "");
     all.tabIndex = 0;   /* 1.5.7: sonst ist die Kategorie per Steuerkreuz nie fokusierbar */
     all.textContent = "Alle Serien";
-    all.onclick = function () { state.selectedSeriesCat = null; renderSeries(); };
+    /* 1.5.13: wie movies - nach dem Klick direkt ins Stream-Raster. */
+    function katFokus(id) {
+        var zi = fokusListe("grid")[0]
+            || (id !== null ? document.querySelector('#series-categories .cat[data-scat-id="' + id + '"]') : fokusListe("vcats")[0]);
+        if (zi) fokusSetzen(zi);
+    }
+    all.onclick = function () { state.selectedSeriesCat = null; renderSeries(); katFokus(null); };
     cats.appendChild(all);
     var sprefs = makeCatPrefs("series");
     sprefs.applyTo(state.seriesCategories).forEach(function (c) {
@@ -2135,7 +2150,7 @@ function renderSeries() {
         d.tabIndex = 0;   /* 1.5.7: Fokus-Spieler */
         d.setAttribute("data-scat-id", c.category_id);
         d.textContent = sprefs.labelOf(c);
-        d.onclick = function () { if (window.__lpFlag) return; state.selectedSeriesCat = c.category_id; renderSeries(); };
+        d.onclick = function () { if (window.__lpFlag) return; state.selectedSeriesCat = c.category_id; renderSeries(); katFokus(c.category_id); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("series", c, 0); };
         cats.appendChild(d);
     });
@@ -4280,7 +4295,10 @@ function init() {
                 topbar: "tabs",
                 tabs: (state.tab === "live" || !state.tab) ? "chans" : "grid",
                 cats: "tabs",
-                vcats: "tabs"
+                /* 1.5.13: DOWN am Zeilenende der Film/Serien-Gruppen geht
+                   in das Stream-Raster, nicht in die Tab-Zeile hinauf
+                   ("springt in das top menu statt in die streams"). */
+                vcats: (state.tab === "live" || !state.tab) ? "tabs" : "grid"
             };
             var ng = senkrecht[gruppe];
             if (ng) {
