@@ -12,7 +12,10 @@
  *  - Elternschutz-PIN: Gate-Untertitel, PIN in Einstellungen entfernen
  *  - "Alle Kanäle" blendet ausgeblendete Kategorien aus (v0.8.5)
  *  - VOD: ausgeblendete Kategorien unter "Alle" gefiltert (v0.8.6)
- *  - Menu-Taste (keyCode 275 / webOSRemote) = Verwaltung öffnen
+ *  - Gruppe verwalten: OK HALTEN auf Gruppe/Sender, oder
+ *    Einstellungen -> "Gruppen sortieren & ausblenden". Die
+ *    MENUE-Taste ist am TV vom LG-Systemmenue belegt (key 275
+ *    kommt dort nicht mehr an) und wird nicht mehr benutzt.
  *
  *  v1.2.0 — Nachziehen auf den Stand von Android v0.8.31 und Desktop 2.0.0:
  *  - Stillstands-Waechter fuer Live-TV (1-s-Takt, 15 s Anlauf, 3 s Stillstand
@@ -77,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.1";
+var APP_VERSION = "1.5.2";
 
 var state = {
     playerId: null,
@@ -550,7 +553,7 @@ function makeCatPrefs(scope) {
        -> A-Z ("name") -> Manuell ("manual", gespeicherte Reihenfolge).
        Default: "manual", sobald eine gespeicherte Reihenfolge existiert,
        sonst "num" - damit aeltere Installationen nicht umspringen. */
-    cp.setSortMode = function (m) { lsSet(catK(scope, "sortmode"), m); };
+    cp.setSortMode = function (m) { lsSet(catK(scope, "sortmodus"), m); };
     cp.sortMode = function () {
         var m = lsGet(catK(scope, "sortmodus"), "");
         if (m) return m;
@@ -1039,7 +1042,7 @@ function openChanMenu(ch) {
     }));
     var note2 = document.createElement("div");
     note2.className = "menu-note";
-    note2.textContent = "Menu-Taste auf Kanal oder Kategorie = Verwaltung • Back schließt";
+    note2.textContent = "OK halten auf Kanal oder Gruppe = Verwaltung · Back schließt";
     body.appendChild(note2);
 }
 
@@ -1669,7 +1672,7 @@ function computeVisibleChannels() {
 function catHinweisZeile(el) {
     var h = document.createElement("div");
     h.className = "cat-hint";
-    h.textContent = "Menü-Taste auf einer Gruppe = sortieren, ausblenden, mehr markieren";
+    h.textContent = "Gruppe verwalten: OK halten · oder Einstellungen → Gruppen sortieren & ausblenden";
     el.appendChild(h);
 }
 
@@ -3135,11 +3138,13 @@ function renderGroups() {
         b.classList.toggle("active", b.getAttribute("data-scope") === scope);
     });
     var prefs = makeCatPrefs(scope);
-    var sortKnopf = document.getElementById("btn-grp-sort");
-    if (sortKnopf) {
-        var modusLabel = { num: "Nummer", name: "A–Z", manual: "Manuell" };
-        sortKnopf.textContent = "Sortierung: " + modusLabel[prefs.sortMode()];
-    }
+    /* Aktiven Sortiermodus an den Knöpfen markieren */
+    var modus = prefs.sortMode();
+    var kMap = { num: "btn-grp-num", name: "btn-grp-name", manual: "btn-grp-man" };
+    ["btn-grp-num", "btn-grp-name", "btn-grp-man"].forEach(function (bid) {
+        var b = document.getElementById(bid);
+        if (b) b.classList.toggle("active", kMap[modus] === bid);
+    });
     var cats = gSourceCats(scope);
     var list = document.getElementById("grp-list");
     list.innerHTML = "";
@@ -3210,10 +3215,11 @@ function renderGroups() {
         };
         list.appendChild(row);
     });
-    /* Werkzeug-Hinweis unter der Liste */
+    /* Werkzeug-Hinweis unter der Liste - Menü-Taste ist am TV vom
+       LG-Systemmenü belegt, deshalb KEIN Verweis darauf. */
     var hintEl = document.createElement("div");
     hintEl.className = "grp-hint";
-    hintEl.textContent = "OK = markieren · Menü-Taste öffnet das Einzeln-Menü mit Sortier-Zyklus";
+    hintEl.textContent = "OK = markieren · OK HALTEN = Gruppe verwalten/umbenennen · GRÜN/ROT = Gruppe hoch/runter";
     list.appendChild(hintEl);
 }
 
@@ -3261,23 +3267,14 @@ function grpAlleEinblenden() {
 }
 
 function grpSortieren() {
+    /* Re-Render im AKTUELL gespeicherten Sortiermodus. Der Modus selbst
+       wird von den drei Buttons (Nummer/A-Z/Manuell) gesetzt. */
     var scope = state.gScope;
-    var prefs = makeCatPrefs(scope);
-    prefs.setSortMode("name");
     if (scope === "live") { renderLiveCategories(); renderLiveChannels(); }
     else if (scope === "movies") renderMovies();
     else renderSeries();
     renderGroups();
     fokusSetzen(document.querySelector("#grp-list .grp-row"));
-}
-
-function grpSortierschritt() {
-    var scope = state.gScope;
-    var prefs = makeCatPrefs(scope);
-    var modi = ["num", "name", "manual"];
-    var i = modi.indexOf(prefs.sortMode());
-    prefs.setSortMode(modi[(i + 1) % modi.length]);
-    grpSortieren();
 }
 
 /* =====================================================================
@@ -3767,7 +3764,15 @@ function init() {
     document.getElementById("btn-grp-all").onclick = grpAllesMarkieren;
     document.getElementById("btn-grp-apply").onclick = grpAnwenden;
     document.getElementById("btn-grp-show").onclick = grpAlleEinblenden;
-    document.getElementById("btn-grp-sort").onclick = grpSortierschritt;
+    document.getElementById("btn-grp-num").onclick = function () {
+        makeCatPrefs(state.gScope).setSortMode("num"); grpSortieren();
+    };
+    document.getElementById("btn-grp-name").onclick = function () {
+        makeCatPrefs(state.gScope).setSortMode("name"); grpSortieren();
+    };   /* A–Z */
+    document.getElementById("btn-grp-man").onclick = function () {
+        makeCatPrefs(state.gScope).setSortMode("manual"); grpSortieren();
+    };
     document.querySelectorAll("#grp-scopes .grp-nav").forEach(function (b) {
         b.onclick = function () { openGroups(b.getAttribute("data-scope")); };
     });
@@ -3807,7 +3812,18 @@ function init() {
             if (!catObj) return;
             if (e.keyCode === 409) { e.preventDefault(); prefs.moveUp(catObj.category_id, cats); renderGroups(); }
             else if (e.keyCode === 403) { e.preventDefault(); prefs.moveDown(catObj.category_id, cats); renderGroups(); }
-            else if (e.keyCode === 10248 || e.keyCode === 275 || e.key === "ContextMenu") { e.preventDefault(); openCatMenu(scope, catObj, 0); }
+            else if (e.keyCode === 13 || e.keyCode === 29443) {
+                /* OK HALTEN = Einzeln-Menue (Umbenennen, Sortier-Zyklus,
+                   Einzeln ausblenden). Kurzer OK = markieren (280ms, damit
+                   ein Halten nicht zusaetzlich umschaltet). Die MENUE-Taste
+                   ist am TV vom LG-Systemmenue belegt und wird bewusst
+                   NICHT mehr bedient. */
+                e.preventDefault();
+                if (e.repeat) { clearTimeout(row.__okT); openCatMenu(scope, catObj, 0); return; }
+                var sl = row;
+                clearTimeout(sl.__okT);
+                sl.__okT = setTimeout(function () { sl.click(); }, 280);
+            }
         }
     }, true);
 

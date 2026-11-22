@@ -1,5 +1,27 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.2 — 22.11.2026
+
+Die MENÜ-Taste ist auf LG-Fernbedienungen vom System belegt (öffnet das
+LG-Menü) — sie wird nicht mehr benutzt. Der komplette Gruppen-Weg läuft
+jetzt zentral in den Einstellungen.
+
+- **Einstellungen → „Gruppen sortieren & ausblenden"** = komplettes
+  Sortier-Menü:
+  - Drei **explizite** Sortier-Knöpfe mit aktiv-Markierung:
+    **↕ Nummer / A–Z / ☰ Manuell** (kein Blind-Zyklus mehr).
+  - **GRÜN/ROT** = markierte Gruppe hoch/runter (Modus „Manuell" wird
+    beim Verschieben automatisch aktiv).
+  - **OK HALTEN** auf einer Zeile = Einzeln-Menü (Umbenennen,
+    Sortier-Zyklus, Alle markieren, Ausblenden).
+  - **OK** = markieren/abwählen, GELB = alles markieren, BLAU =
+    nur markierte zeigen.
+  - Hilfetexte im Screen erklären alles, ohne die Menü-Taste.
+- Die Gruppen-Zeilen (Live/Filme/Serien-Seiten) öffnen das
+  Einzeln-Menü ebenfalls per OK-Halten; Zeiger-Langpress (550 ms)
+  bleibt als Bonus.
+- Alle Navigations-Tests (N1–N10) im Browser-Harness grün.
+
 ## 1.5.1 — 22.11.2026
 
 Fernbedienungs-Debugging nach Smartyts Rückmeldung — das Steuerkreuz
