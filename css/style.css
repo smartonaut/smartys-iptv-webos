@@ -401,6 +401,18 @@ html, body {
     letter-spacing: .2px;
 }
 
+/* ---------- v1.5.4: Fokus ueberall sichtbar ---------- */
+.grp-row:focus {
+    outline: 3px solid #FFC94D; outline-offset: -3px; border-radius: 8px;
+    background: rgba(255, 201, 77, .16);
+}
+.grp-nav:focus { outline: 3px solid #FFC94D; outline-offset: -3px; }
+.grp-scopes .grp-nav:focus { outline: 3px solid #FFC94D; outline-offset: 2px; }
+.cat:focus { background: rgba(255, 201, 77, .14); }
+.tab:focus { background: rgba(255, 201, 77, .14); }
+.ch:focus { background: #1B2745; }
+.grid-item:focus { background: #1B2745; }
+
 /* ---------- v1.5.0: Merken ---------- */
 .watch-leer { color: #8FA3C8; font-size: 17px; padding: 26px 24px; }
 .watch-badge {

@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.3";
+var APP_VERSION = "1.5.4";
 
 var state = {
     playerId: null,
@@ -924,7 +924,7 @@ function renderCatMenuMode() {
         }));
         top.appendChild(menuButton("🚫 Nur markierte behalten", "mini danger", function () {
             prefs.unhideAll();
-            prefs.hideMany(cur2 = prefs.currentOrder(cats).filter(function (id) { return menuState.marked.indexOf(id) < 0; }));
+            prefs.hideMany(prefs.currentOrder(cats).filter(function (id) { return menuState.marked.indexOf(id) < 0; }));
             menuRefresh(); renderCatMenuMode();
         }));
         top.appendChild(menuButton("🚫 Markierte ausblenden", "mini danger", function () {
@@ -946,6 +946,8 @@ function renderCatMenuMode() {
         visibleList.forEach(function (c) {
             var row = document.createElement("div");
             row.className = "menu-item" + (menuState.marked.indexOf(c.category_id) >= 0 ? " marked" : "");
+            row.tabIndex = 0;                                  /* fokussierbar per Steuerkreuz */
+            row.setAttribute("data-cat-id", c.category_id);    /* OK-Handling + Tests */
             row.textContent = (menuState.marked.indexOf(c.category_id) >= 0 ? "☑ " : "☐ ") + prefs.labelOf(c);
             row.onclick = function () {
                 var i = menuState.marked.indexOf(c.category_id);
@@ -3130,6 +3132,11 @@ function openGroups(scope) {
     state.gScope = scope || "live";
     show("view-groups");
     renderGroups();
+    /* Fokus SOFORT auf eine Gruppen-Zeile: ohne diesen Schritt bleibt
+       activeElement BODY - kein Fokus-Marker sichtbar, die erste
+       Pfeiltaste springt in die Knopf-Zeile (Smarty: "focus fehlt
+       komplett, ich weiss nicht wo ich bin"). */
+    fokusSetzen(document.querySelector("#grp-list .grp-row"));
 }
 
 function renderGroups() {
@@ -3217,6 +3224,29 @@ function renderGroups() {
     });
 }
 
+function grpAllesAusblenden() {
+    /* Startpunkt des inversen Workflows: ALLES ausblenden, dann die
+       anzuzeigenden Gruppen markieren, BLAU (nur markierte zeigen). */
+    var scope = state.gScope;
+    var prefs = makeCatPrefs(scope);
+    prefs.setAllHidden(gSourceCats(scope), true);   /* sofort speichern */
+    Object.keys(state.grpMarks).forEach(function (k) { state.grpMarks[k] = false; });
+    document.querySelectorAll("#grp-list .grp-row").forEach(function (row) {
+        state.grpMarks[row.getAttribute("data-gid")] = false;
+        row.className = "grp-row grp-nav grp-off";
+        row.textContent = "○  " + (row.getAttribute("data-row-name") || "");
+    });
+    grpStatusZeile("Alle Gruppen ausgeblendet. Gruppen markieren, BLAU = nur markierte zeigen.");
+    fokusSetzen(document.querySelector("#grp-list .grp-row"));
+}
+function grpStatusZeile(text) {
+    var alt = document.querySelector("#grp-list .grp-hint.grp-status");
+    if (alt) alt.remove();
+    var h = document.createElement("div");
+    h.className = "grp-hint grp-status";
+    h.textContent = text;
+    document.getElementById("grp-list").prepend(h);
+}
 function grpAnwenden() {
     var scope = state.gScope;
     var cats = gSourceCats(scope);
@@ -3760,10 +3790,16 @@ function init() {
     };
     document.getElementById("btn-grp-all").onclick = grpAllesMarkieren;
     document.getElementById("btn-grp-apply").onclick = grpAnwenden;
+    document.getElementById("btn-grp-hideall").onclick = grpAllesAusblenden;
     document.getElementById("btn-grp-multi").onclick = function () {
-        /* Desktop-Workflow ohne Halten: alles markiert startend,
-           abwaehlen was weg, "NUR MARKIERTE BEHALTEN" blendet Rest aus. */
-        openCatMenu(state.gScope, gSourceCats(state.gScope)[0], 1);
+        /* Startet mit dem IST-Zustand: nach "Alles ausblenden" nichts
+           markiert (Gruppen markieren = die zeigen), nach GELB alles
+           markiert (abwaehlen was weg). BLAU wendet an. */
+        var prefs = makeCatPrefs(state.gScope);
+        var cs = gSourceCats(state.gScope);
+        menuState.marked = cs.filter(function (c) { return !prefs.isHidden(c.category_id); })
+            .map(function (c) { return c.category_id; });
+        openCatMenu(state.gScope, cs[0], 1);
     };
     document.getElementById("btn-grp-show").onclick = grpAlleEinblenden;
     document.getElementById("btn-grp-num").onclick = function () {
@@ -3780,16 +3816,55 @@ function init() {
     });
     pvFehlerInit();
 
-    /* Gruppen-Navigation: Hoch/Runter ueber Zeilen+Tasten (globaler
+    /* Gruppen-Navigation: Hoch/Runter ueber Zonen (globaler
        Handler kennt bislang nur die Home-Ansichten). */
+    window.grpZonen = function () {
+        var vis = function (sel) {
+            return Array.prototype.slice.call(document.querySelectorAll(sel)).filter(function (e) {
+                return e.offsetParent !== null;
+            });
+        };
+        return [
+            vis("#grp-scopes .grp-nav"),
+            vis("#grp-actions .grp-nav"),
+            vis("#grp-list .grp-row")
+        ];
+    };
+    /* VERTIKAL in der Gruppen-Verwaltung: Zonen-Reihenfolge
+       Bereiche -> Werkzeug-Knoepfe -> Gruppenliste. UP aus der
+       Listen-Oberzeile rueber in die Knopf-Reihe, DOWN umgekehrt.
+       Vorher lief DOWN linear durch ALLE .grp-nav-Elemente (10
+       Knopfe + Zeilen), und links/rechts tat ueberhaupt nichts -
+       genau die Kritik von Smarty ("Hoch/Runter und seitlich schlecht"). */
     window.navGrp = function (delta) {
-        var liste = document.querySelectorAll("#view-groups .grp-nav");
-        var vis = Array.prototype.slice.call(liste).filter(function (e) { return e.offsetParent !== null; });
-        if (!vis.length) return false;
-        var i = vis.indexOf(document.activeElement);
-        if (i < 0) return fokusSetzen(vis[0]);
-        var n = Math.min(vis.length - 1, Math.max(0, i + delta));
-        fokusSetzen(vis[n]);
+        var z = grpZonen();
+        var ae = document.activeElement;
+        var zi = -1, pos = -1;
+        for (var q = 0; q < z.length; q++) {
+            var i = z[q].indexOf(ae);
+            if (i >= 0) { zi = q; pos = i; break; }
+        }
+        if (zi < 0) { fokusSetzen(z[2][0] || z[1][0] || z[0][0]); return true; }
+        var ziel = z[zi + delta];
+        if (ziel && ziel.length) { fokusSetzen(ziel[pos < ziel.length ? pos : 0]); return true; }
+        if (zi === 2 && delta < 0 && z[1].length) { fokusSetzen(z[1][0]); return true; }
+        if (zi === 1 && delta > 0 && z[2].length) { fokusSetzen(z[2][0]); return true; }
+        return true;
+    };
+    /* HORIZONTAL: innerhalb der Knopf-Zeilen (Scopes, Werkzeuge); in der
+       Gruppenliste ist links/rechts untaetig - die Liste ist einspaltig
+       und der Fokus haengt sonst falsch weiter. */
+    window.navGrpX = function (delta) {
+        var z = grpZonen();
+        var ae = document.activeElement;
+        for (var q = 0; q < z.length; q++) {
+            var i = z[q].indexOf(ae);
+            if (i < 0) continue;
+            if (q === 2) return true;   /* Gruppenliste: einspaltig */
+            var n = i + delta;
+            if (n >= 0 && n < z[q].length) fokusSetzen(z[q][n]);
+            return true;
+        }
         return true;
     };
 
@@ -4143,7 +4218,8 @@ function init() {
         /* Gruppen-Verwaltung / Einstellungen: links/rechts keine
            Spaltenwechsel - die Pfeiltasten dort sind untaetig, alles
            laeuft hoch/runter. */
-        if (state.currentView === "view-groups" || state.currentView === "view-settings") return true;
+        if (state.currentView === "view-groups") return navGrpX(delta);   /* 1.5.4 */
+        if (state.currentView === "view-settings") return true;
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, false);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);

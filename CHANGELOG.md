@@ -1,5 +1,24 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.4 — 22.11.2026
+
+Fokus sichtbar, Navigation in Zonen, beide Workflows komplett.
+
+- **Fokus überall sichtbar**: Fokussierte Gruppen-Zeilen, Knöpfe, Tabs
+  und Kategorien zeigen einen Gold-Rahmen + Helltönung. Nach dem Öffnen
+  des Gruppen-Screens steht der Fokus sofort auf der ersten Zeile
+  (vorher leere Anzeige, „wo bin ich?“).
+- **Navigation in Zonen**: Hoch/Runter springt Bereichswahl →
+  Werkzeug-Knöpfe → Gruppenliste (nicht mehr linear durch alle
+  Elemente). Links/Rechts bewegt INNERHALB der jeweiligen Zeile,
+  am Zeilenrand bleibt der Fokus stehen.
+- **„🚫 Alles ausblenden"**: Startet den inversen Workflow — alles
+  ausgeblendet, die anzuzeigenden Gruppen markieren, BLAU wendet an.
+- **🎯 Mehrere markieren startet mit dem Ist-Zustand**: nach GELB alles
+  markiert (abwählen, was weg), nach 🚫 nichts markiert (markieren, was
+  gezeigt wird). BLAU übernimmt beide Richtungen.
+- Tasten-Legende unten aktualisiert.
+
 ## 1.5.3 — 22.11.2026
 
 Rückmeldung umgesetzt: Der Gruppen-Screen ist jetzt voll nutzbar mit der
