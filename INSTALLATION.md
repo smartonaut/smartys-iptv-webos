@@ -6,7 +6,7 @@ Voraussetzungen
 - LG TV mit webOS (TV ist ~1 Jahr alt → webOS 24/25; die App nutzt
   abwärtskompatible APIs, läuft also auch auf älteren webOS-Versionen)
 - Der TV und dieser Rechner müssen im selben Netz hängen
-- Die App-Datei: **com.smartys.iptv_1.5.0_all.ipk**
+- Die App-Datei: **com.smartys.iptv_1.5.1_all.ipk**
   liegt unter ~/Projekte/Smartys Player/webOS/ (mit ./build_ipk.sh neu baubar)
   oder als Download: https://github.com/smartonaut/smartys-iptv-webos/releases/latest
 
@@ -68,7 +68,7 @@ Passcode abholen — es wird nach dem 6-stelligen Code vom TV gefragt:
 
 Danach die App installieren:
 
-    npx ares-install --device tv com.smartys.iptv_1.5.0_all.ipk
+    npx ares-install --device tv com.smartys.iptv_1.5.1_all.ipk
 
 Fertig. Die App erscheint nach ein paar Sekunden auf dem Home-Bildschirm
 unter dem Namen "Smartys M3U Player".
@@ -117,7 +117,7 @@ Hinweise
 - Sollte ein Kanal schwarz bleiben: Die App nutzt hls.js. Bei älteren webOS-
   Versionen greift automatisch natives HLS (Safari/WebKit).
 - Welche Version installiert ist, steht in der App unter Einstellungen →
-  Über (z. B. „Smartys Player 1.5.0 (webOS)").
+  Über (z. B. „Smartys Player 1.5.1 (webOS)“).
 - Für einen Fernseher in einem anderen Haushalt ist der webOS Dev Manager
   (Weg B) der einfachste Weg: kein Rechner, keine ares-cli — nur Handy,
   IP und Passcode. Die .ipk vorher von der Release-Seite herunterladen.

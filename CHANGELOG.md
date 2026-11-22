@@ -1,5 +1,33 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.1 — 22.11.2026
+
+Fernbedienungs-Debugging nach Smartyts Rückmeldung — das Steuerkreuz
+arbeitet jetzt überall richtig, auch neben der Maus-Option.
+
+- **Suchfeld-Falle behoben**: Das Suchfeld startet NICHT mehr durch die
+  Pfeil-Navigation (Hoch/Runter aus der Tab-Zeile geht direkt in
+  Senderliste bzw. Film-/Serien-Raster). Es aktiviert sich nur per
+  Klick/Zeiger — und ist aus jedem Feld wieder heraus: **Back** verlässt
+  es (Fokus zurück auf den aktiven Tab), Hoch/Runter ebenfalls (Fokus in
+  die Tab-Zeile bzw. Liste), Links/Rechts bleibt Cursor. Kein Hängen
+  mehr im Suchfeld.
+- **Tab-Zeile links/rechts**: In der Kopfzeile verschieben
+  Links/Rechts den Fokus INNERHALB der Tabs (Live → Filme → Serien → …),
+  OK wechselt die Seite. Erst am Zeilenrand wandert der Fokus in die
+  Spalten daneben. Die Topbar (Einstellungen/… ) verhält sich gleich.
+- **Langer Druck klappt auf zwei Wegen**:
+  - **OK halten** auf einer Gruppe (Fernbedienung): kurzer Druck wählt
+    aus, Halten öffnet das Gruppen-Untermenü (Desktop-Präzedenz).
+  - **Zeiger halten** (Magic-Remote-Maus): 550 ms auf einer Gruppe =
+    Untermenü; der dann folgende Klick wird sauber unterdrückt.
+- **Fehler im Gruppen-Menü behoben** (`cp is not defined`): Das
+  Untermenü einer Gruppe blieb bei OK-Halte/Longpress/Menü-Taste leer;
+  der Sortier-Zyklus Nummer/A–Z/Manuell ist jetzt auch dort sichtbar.
+- Alle 7 Navigations-Tests im Browser-Harness grün
+  (Down→Inhalt, Tab links/rechts, Suchfeld-Flucht, OK-Halten,
+  Pointer-Langpress, Kurz-OK-Wahl, kein autofokus).
+
 ## 1.5.0 — 22.11.2026
 
 Bedienung & Options-Ausbau nach der stabilen nativen Basis (1.4.0).

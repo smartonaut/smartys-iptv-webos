@@ -77,7 +77,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.0";
+var APP_VERSION = "1.5.1";
 
 var state = {
     playerId: null,
@@ -827,9 +827,9 @@ function renderCatMenuMode() {
             row.className = "menu-row";
             var modi = ["num", "name", "manual"];
             var modusLabel = { num: "Nummer", name: "A–Z", manual: "Manuell" };
-            row.appendChild(menuButton(" → Sortierung: " + modusLabel[cp.sortMode()], "mini", function () {
-                var i = modi.indexOf(cp.sortMode());
-                cp.setSortMode(modi[(i + 1) % modi.length]);
+            row.appendChild(menuButton(" → Sortierung: " + modusLabel[prefs.sortMode()], "mini", function () {
+                var i = modi.indexOf(prefs.sortMode());
+                prefs.setSortMode(modi[(i + 1) % modi.length]);
                 menuRefresh();
                 renderCatMenuMode();
             }));
@@ -1614,7 +1614,7 @@ function renderLiveCategories() {
         d.className = "cat" + (state.selectedLiveCat === c.category_id ? " active" : "");
         d.setAttribute("data-cat-id", c.category_id);
         d.textContent = prefs.labelOf(c);
-        d.onclick = function () { state.selectedLiveCat = c.category_id; renderLiveCategories(); renderLiveChannels(); };
+        d.onclick = function () { if (window.__lpFlag) return; state.selectedLiveCat = c.category_id; renderLiveCategories(); renderLiveChannels(); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("live", c, 0); };
         d.tabIndex = 0;
         el.appendChild(d);
@@ -1974,7 +1974,7 @@ function renderMovies() {
         d.className = "cat" + (state.selectedMovieCat === c.category_id ? " active" : "");
         d.setAttribute("data-mcat-id", c.category_id);
         d.textContent = mprefs.labelOf(c);
-        d.onclick = function () { state.selectedMovieCat = c.category_id; renderMovies(); };
+        d.onclick = function () { if (window.__lpFlag) return; state.selectedMovieCat = c.category_id; renderMovies(); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("movies", c, 0); };
         cats.appendChild(d);
     });
@@ -2012,7 +2012,7 @@ function renderSeries() {
         d.className = "cat" + (state.selectedSeriesCat === c.category_id ? " active" : "");
         d.setAttribute("data-scat-id", c.category_id);
         d.textContent = sprefs.labelOf(c);
-        d.onclick = function () { state.selectedSeriesCat = c.category_id; renderSeries(); };
+        d.onclick = function () { if (window.__lpFlag) return; state.selectedSeriesCat = c.category_id; renderSeries(); };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("series", c, 0); };
         cats.appendChild(d);
     });
@@ -3987,6 +3987,18 @@ function init() {
         if (state.currentView === "view-groups") return navGrp(delta);
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, true);
+        /* 1.5.1: TAB-Zeile / TOPLAST ist horizontal organisiert.
+           Hoch/Runter fuehrt sofort in den INHALT (bzw. von der Topbar
+           runter in die Tabs) statt zusaetzlich durch die Tab-Zeile zu
+           wandern - genau das, was Smarty vermisst hat. */
+        if (gruppe0 === "tabs" || gruppe0 === "topbar") {
+            if (gruppe0 === "topbar" && delta < 0) delta = -1;
+            var ziel0 = gruppe0 === "topbar" ? "tabs"
+                : (state.tab === "live" || !state.tab) ? "cats" : "vcats";
+            var l0 = fokusListe(ziel0);
+            if (l0.length) { fokusSetzen(delta < 0 && gruppe0 === "topbar" ? l0[0] : l0[0]); return true; }
+            return true;
+        }
         if (gruppe0 === "chans") return navChans(delta);
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, true);
         var el = document.activeElement;
@@ -3999,8 +4011,17 @@ function init() {
         var ziel = i + delta;
         if (ziel < 0 || ziel >= liste.length) {
             /* Am Rand der Spalte: in die naechste Zeile wechseln.
-               tabs -> Suchfeld -> Kategorien, sonst halten. */
-            var senkrecht = { tabs: "search", search: "cats", cats: "search" };
+               WICHTIG (1.5.1): das Suchfeld ist Absicht NICHT mehr Teil der
+               Pfeil-Kette. Es liess sich per Hoch/Runter nicht mehr verlassen
+               (Inputs frassen die Pfeiltasten) und Smarty sass fest.
+               Das Suchfeld erreicht man NUR noch per Klick/Zeiger - und es
+               hat einen eigenen Escape (Back/Hoch/Runter, siehe unten). */
+            var senkrecht = {
+                topbar: "tabs",
+                tabs: (state.tab === "live" || !state.tab) ? "chans" : "grid",
+                cats: "tabs",
+                vcats: "tabs"
+            };
             var ng = senkrecht[gruppe];
             if (ng) {
                 var nl = fokusListe(ng);
@@ -4081,6 +4102,28 @@ function init() {
     window.navHorizontal = function (delta) {
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, false);
+        /* 1.5.1: In der TAB-Zeile muss links/rechts die TABS wechseln
+           (Seitenwechsel am Steuerkreuz), nicht in die Spalten springen.
+           Erst am Zeilenrand wandert der Fokus in die Spalten daneben. */
+        if (gruppe0 === "tabs") {
+            var tl = fokusListe("tabs");
+            var ti = tl.indexOf(document.activeElement);
+            var tz = ti + delta;
+            if (tz >= 0 && tz < tl.length) { fokusSetzen(tl[tz]); return true; }
+            var sp = (state.tab === "live" || !state.tab) ? "cats" : "vcats";
+            var l0 = fokusListe(sp);
+            if (l0.length) { fokusSetzen(l0[0]); return true; }
+            return true;
+        }
+        if (gruppe0 === "topbar") {
+            var bl = fokusListe("topbar");
+            var bi = bl.indexOf(document.activeElement);
+            var bz = bi + delta;
+            if (bz >= 0 && bz < bl.length) { fokusSetzen(bl[bz]); return true; }
+            var t0 = fokusListe("tabs");
+            if (t0.length) { fokusSetzen(t0[0]); return true; }
+            return true;
+        }
         /* Gruppen-Verwaltung / Einstellungen: links/rechts keine
            Spaltenwechsel - die Pfeiltasten dort sind untaetig, alles
            laeuft hoch/runter. */
@@ -4117,6 +4160,36 @@ function init() {
         else if (k === 39) { if (navHorizontal(1)) e.preventDefault(); }
     }, true);
 
+    /* =================================================================
+     *  1.5.1 FLUCHT AUS EINGABEFELDERN
+     *  In einem Input frassen Pfeiltasten nur den Cursor, und Back tat
+     *  nichts - Smarty sass im Suchfeld fest. Jetzt gilt in JEDEM Feld
+     *  (Suche, Umbenennen, PIN in den Einstellungen; NICHT PIN-Gate):
+     *  Back/Taste = Feld verlassen + aktiven Tab fokussieren,
+     *  Hoch/Runter = Feld verlassen + in die Tab-Zeile bzw. Liste.
+     *  Links/Rechts bleibt beim Text-Cursor.
+     * ================================================================= */
+    document.addEventListener("keydown", function (e) {
+        var ae = document.activeElement;
+        if (!ae || (ae.tagName !== "INPUT" && ae.tagName !== "TEXTAREA")) return;
+        if (state.currentView === "view-unlock") return;   /* PIN-Gate: Feld behaelt Fokus */
+        var k = e.keyCode;
+        var isBack = k === 10009 || k === 461 || k === 27;
+        if (k !== 38 && k !== 40 && !isBack) return;
+        e.preventDefault();
+        e.stopPropagation();
+        ae.blur();
+        if (state.currentView === "view-groups") { fokusSetzen(document.querySelector("#grp-list .grp-row")); return; }
+        if (isBack || k === 38) {
+            var t = document.querySelector(".tabs .tab.active") || document.querySelector(".tabs .tab");
+            fokusSetzen(t);
+        } else {
+            var ziel = (state.tab === "live" || !state.tab) ? "chans" : "grid";
+            var l = fokusListe(ziel);
+            if (l.length) fokusSetzen(l[0]);
+        }
+    }, true);
+
     /* Menue-Buttons: Enter explizit behandeln und die Propagierung
        stoppen. Auf einem <button> feuert Enter nativ ein click(), aber
        weitere keydown-Handler (Player-OSD, Menue-Taste) liefen ebenfalls
@@ -4134,16 +4207,73 @@ function init() {
 
     /* Enter/OK auf einem fokussierten <div>: der Browser klickt nur
        echte Buttons und Links. Kategorien und Sender sind divs, also
-       muss der Klick hier ausgeloest werden. */
+       muss der Klick hier ausgeloest werden.
+       1.5.1 LANGE DRUCK: OK HALTEN (key-repeat) auf einer GRUPPE oeffnet
+       das Untermenue (Desktop-Praezedenz: kurzer Druck = anwaehlen,
+       langer Druck = verwalten/ausblenden). Nur das ERSTE keydown
+       aktivieren, repeats fuehren ins Menue statt Klick-Reihen. */
     document.addEventListener("keydown", function (e) {
         if (e.keyCode !== 13 && e.keyCode !== 29443) return;
         var el = document.activeElement;
         if (!el) return;
-        if (el.classList.contains("cat") || el.classList.contains("ch") || el.classList.contains("grid-item")) {
+        if (el.classList.contains("cat")) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.repeat) { clearTimeout(el.__okT); katMenueVonEl(el); return; }
+            /* Kurzer Druck = anwaehlen (leicht verzoegert, damit ein HALTEN
+               als Menue-Taste erkannt wird und NICHT zusaetzlich waehlt) */
+            var self = el;
+            clearTimeout(self.__okT);
+            self.__okT = setTimeout(function () { self.click(); }, 280);
+            return;
+        }
+        if (el.classList.contains("ch") || el.classList.contains("grid-item")) {
             e.preventDefault();
             el.click();
         }
     });
+    /* Pointer-Variante: Zeiger 550 ms auf einer Gruppe halten = Menue;
+       der dann folgende Klick wird unterdrueckt (__lpFlag). */
+    document.addEventListener("pointerdown", function (ev) {
+        if (state.currentView !== "view-home") return;
+        var c = ev.target && ev.target.closest ? ev.target.closest(".cat") : null;
+        if (!c) return;
+        window.__lpKat = c;
+        window.__lpTimer = setTimeout(function () {
+            window.__lpFlag = true;
+            katMenueVonEl(window.__lpKat);
+            setTimeout(function () { window.__lpFlag = false; }, 400);
+        }, 550);
+    }, true);
+    function lpAbbrechen() {
+        clearTimeout(window.__lpTimer);
+        /* Nach einem Longpress den folgenden Klick abfangen: das Flag
+           bleibt bis kurz nach dem pointerup-Click stehen. */
+        if (window.__lpFlag) {
+            setTimeout(function () { window.__lpFlag = false; }, 350);
+        }
+    }
+    document.addEventListener("pointerup", lpAbbrechen, true);
+    document.addEventListener("pointercancel", lpAbbrechen, true);
+    document.addEventListener("pointermove", function (ev) {
+        if (ev.movementX || ev.movementY) lpAbbrechen();
+    }, true);
+
+    /* Gruppen-Untermenue von einem Kategorie-Element aus oeffnen
+       (live: data-cat-id in #live-categories; filme/serien: data-mcat-id /
+       data-scat-id in der Sidebar). */
+    window.katMenueVonEl = function (el) {
+        if (!el || !el.getAttribute) return;
+        var catId = el.getAttribute("data-cat-id") || el.getAttribute("data-mcat-id") || el.getAttribute("data-scat-id");
+        if (!catId) return;
+        var scope = el.closest("#live-categories") ? "live" :
+            el.getAttribute("data-mcat-id") ? "movies" : "series";
+        var cats = scope === "live" ? state.categories :
+            scope === "movies" ? state.vodCategories : state.seriesCategories;
+        for (var i = 0; i < cats.length; i++) {
+            if (String(cats[i].category_id) === String(catId)) { openCatMenu(scope, cats[i], 0); return; }
+        }
+    };
 
     // OK-Taste im Player = OSD togglen
     document.addEventListener("keydown", function (e) {
