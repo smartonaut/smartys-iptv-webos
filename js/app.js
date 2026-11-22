@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.5";
+var APP_VERSION = "1.5.6";
 
 var state = {
     playerId: null,
@@ -432,6 +432,21 @@ function show(id) {
                 try { window.ersterFokus && window.ersterFokus(); } catch (e) {}
             }
         }, 120);
+    }
+    /* 1.5.6: Einstellungen bekommt beim Öffnen sofort Fokus auf den
+       ersten Aktion-Knopf (Öffnen), damit das Steuerkreuz ab dem
+       ersten Druck funktioniert und der Nutzer sieht, wo er ist. */
+    if (id === "view-settings") {
+        setTimeout(function () {
+            if (state.currentView !== "view-settings") return;
+            var s0 = fokusListe("settings");
+            if (!s0.length) return;
+            var start = null;
+            for (var i = 0; i < s0.length; i++) {
+                if (s0[i].closest(".settings-body")) { start = s0[i]; break; }
+            }
+            fokusSetzen(start || s0[0]);
+        }, 140);
     }
 }
 
@@ -3863,6 +3878,21 @@ function init() {
         if (zi === 1 && delta > 0 && z[2].length) { fokusSetzen(z[2][0]); return true; }
         return true;
     };
+
+    /* 1.5.6: EINSTELLUNGEN — die Ansicht hatte bislang weder
+       Initialfokus noch Hoch/Runter (LEFT/RIGHT war bewusst still). Der
+       Nutzer stand im Nichts ("keine fokus ... kann es nicht bedienen").
+       navSettings läuft die aktionierbaren Elemente (Öffnen/Umschalten/
+       Zurück/PIN) linear im DOM ab, scrollIntoView inklusive. */
+    window.navSettings = function (delta) {
+        var rows = fokusListe("settings");
+        if (!rows.length) return true;
+        var i = rows.indexOf(document.activeElement);
+        if (i < 0) { fokusSetzen(rows[0]); return true; }
+        var n = i + delta;
+        if (n >= 0 && n < rows.length) fokusSetzen(rows[n]);
+        return true;
+    };
     /* HORIZONTAL: innerhalb der Knopf-Zeilen (Scopes, Werkzeuge); in der
        Gruppenliste ist links/rechts untaetig - die Liste ist einspaltig
        und der Fokus haengt sonst falsch weiter. */
@@ -4061,6 +4091,7 @@ function init() {
             vcats: ".pane:not(.hidden) .sidebar .cat",
             grid: ".pane:not(.hidden) .grid-item",
             epg: "#epg-grid .epg-prog",
+            settings: "#view-settings .btn-ghost:not(.hidden), #view-settings .btn-primary:not(.hidden), #view-settings .settings-btn:not(.hidden)",
             menu: ".menu-overlay:not(.hidden) .menu-btn, .menu-overlay:not(.hidden) .menu-item, .menu-overlay:not(.hidden) input"
         }[gruppe];
         if (!sel) return [];
@@ -4087,6 +4118,7 @@ function init() {
 
     window.navVertikal = function (delta) {
         if (state.currentView === "view-groups") return navGrp(delta);
+        if (state.currentView === "view-settings") return navSettings(delta);   /* 1.5.6 */
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, true);
         /* 1.5.1: TAB-Zeile / TOPLAST ist horizontal organisiert.
@@ -4309,6 +4341,11 @@ function init() {
         e.stopPropagation();
         ae.blur();
         if (state.currentView === "view-groups") { fokusSetzen(document.querySelector("#grp-list .grp-row")); return; }
+        if (state.currentView === "view-settings") {
+            var sv = fokusListe("settings");
+            if (sv.length) fokusSetzen(sv[0]);
+            return;
+        }
         if (isBack || k === 38) {
             var t = document.querySelector(".tabs .tab.active") || document.querySelector(".tabs .tab");
             fokusSetzen(t);

@@ -1,5 +1,14 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.6 — 22.11.2026
+
+Einstellungen per Steuerkreuz bedienbar.
+
+- Beim Öffnen der Einstellungen steht der Fokus sofort auf dem ersten
+  Aktion-Knopf (Öffnen). DOWN/UP läuft durch alle Zeilen (Öffnen,
+  Vorschaufenster, IMDb, PIN ...), OK löst aus, BACK verlässt.
+- Tests N1–N19 grün, Geräte-Check (Initialfokus • outline solid) bestätigt.
+
 ## 1.5.5 — 22.11.2026
 
 Sortier-Screen steuerkreuzfest + Topbar-Ring.
