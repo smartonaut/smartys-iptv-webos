@@ -382,6 +382,25 @@ html, body {
 .grp-row.grp-off { color: #5A6C93; }
 .cat-hint { color: #5A6C93; font-size: 13px; padding: 10px 12px; }
 
+/* ---------- v1.5.3: Gruppen-Screen in Bildschirmgroesse ---------- */
+#view-groups .grp-full {
+    max-width: none; width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+}
+#view-groups .settings-head { padding: 14px 24px 8px; flex: 0 0 auto; }
+#view-groups .grp-scopes { margin: 0 24px; flex: 0 0 auto; }
+#view-groups .grp-actions { margin: 10px 24px; flex: 0 0 auto; }
+#view-groups #grp-list {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    gap: 0; margin: 0 24px; background: #10141F; border-radius: 10px;
+}
+#view-groups #grp-list .grp-hint { padding: 10px 18px; }
+.grp-legend {
+    flex: 0 0 auto; background: #0B0F19; border-top: 1px solid #1B2338;
+    padding: 12px 20px; color: #C9D6F2; font-size: 14px; text-align: center;
+    letter-spacing: .2px;
+}
+
 /* ---------- v1.5.0: Merken ---------- */
 .watch-leer { color: #8FA3C8; font-size: 17px; padding: 26px 24px; }
 .watch-badge {

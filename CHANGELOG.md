@@ -1,5 +1,28 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.3 — 22.11.2026
+
+Rückmeldung umgesetzt: Der Gruppen-Screen ist jetzt voll nutzbar mit der
+Original-Fernbedienung.
+
+- **Bildschirmgröße & Scroll**: „Gruppen sortieren & ausblenden" fillt
+  jetzt die volle Höhe — die Liste scrollt (Steuerkreuz), Titel,
+  Bereichs-Wahl und Knöpfe stehen fest oben.
+- **Tasten-Legende unten fest** (scrollt nicht mit): OK = Gruppe
+  verwalten · GRÜN/ROT = hoch/runter · GELB alles markieren · BLAU nur
+  markierte zeigen · BACK zurück. Änderungen werden sofort gespeichert.
+- **Kein „OK halten" mehr nötig**: Die Original-Fernbedienung sendet
+  beim Halten keine Tastenwiederholung — die Halten-Erkennung hätte
+  dort nie funktioniert. Jetzt: **OK auf einer Gruppen-Zeile öffnet
+  direkt das Verwaltungs-Menü** (ausblenden, umbenennen, sortieren).
+  In den Seiten (Live/Filme/Serien) bleibt OK = Gruppe wählen.
+- **„🎯 Mehrere markieren"** als eigener Knopf oben = der komplette
+  Workflow (alles markiert starten → Abwählen was weg → „NUR
+  MARKIERTE BEHALTEN" blendet den Rest aus) ohne Halten.
+- GELB (alles markieren) und alle Workflow-Aktionen speichern sofort —
+  „Zurück" verliert nichts mehr.
+- Browser-Tests N1–N12 + Basis-Suite grün, Geräte-Checks bestätigt.
+
 ## 1.5.2 — 22.11.2026
 
 Die MENÜ-Taste ist auf LG-Fernbedienungen vom System belegt (öffnet das

@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.2";
+var APP_VERSION = "1.5.3";
 
 var state = {
     playerId: null,
@@ -1042,7 +1042,7 @@ function openChanMenu(ch) {
     }));
     var note2 = document.createElement("div");
     note2.className = "menu-note";
-    note2.textContent = "OK halten auf Kanal oder Gruppe = Verwaltung · Back schließt";
+    note2.textContent = "Gruppen verwalten: Einstellungen > Gruppen sortieren & ausblenden · Back schließt";
     body.appendChild(note2);
 }
 
@@ -1672,7 +1672,7 @@ function computeVisibleChannels() {
 function catHinweisZeile(el) {
     var h = document.createElement("div");
     h.className = "cat-hint";
-    h.textContent = "Gruppe verwalten: OK halten · oder Einstellungen → Gruppen sortieren & ausblenden";
+    h.textContent = "Gruppen verwalten & ausblenden: Einstellungen → Gruppen sortieren & ausblenden";
     el.appendChild(h);
 }
 
@@ -3200,6 +3200,10 @@ function renderGroups() {
 
     cats.forEach(function (c) {
         var id = String(c.category_id);
+        /* 1.5.3: OK auf der Zeile oeffnet DIREKT das Einzeln-Menue
+           (Original-Fernbedienung sendet KEIN key-repeat beim Halten -
+           die Halten-Erkennung funktionierte dort nie). Markieren /
+           Workflow laeuft ueber Mehrfach-Markieren bzw. GELB/BLAU. */
         var row = document.createElement("div");
         row.className = "grp-row grp-nav" + (state.grpMarks[id] ? "" : " grp-off");
         row.tabIndex = 0;
@@ -3208,19 +3212,9 @@ function renderGroups() {
         row.setAttribute("data-row-name", c.category_name || "Unbenannt");
         var name = c.category_name || "Unbenannt";
         row.textContent = (state.grpMarks[id] ? "●  " : "○  ") + name + anzahl;
-        row.onclick = function () {
-            state.grpMarks[id] = !state.grpMarks[id];
-            row.className = "grp-row grp-nav" + (state.grpMarks[id] ? "" : " grp-off");
-            row.textContent = (state.grpMarks[id] ? "●  " : "○  ") + name + anzahl;
-        };
+        row.onclick = function () { openCatMenu(scope, c, 0); };
         list.appendChild(row);
     });
-    /* Werkzeug-Hinweis unter der Liste - Menü-Taste ist am TV vom
-       LG-Systemmenü belegt, deshalb KEIN Verweis darauf. */
-    var hintEl = document.createElement("div");
-    hintEl.className = "grp-hint";
-    hintEl.textContent = "OK = markieren · OK HALTEN = Gruppe verwalten/umbenennen · GRÜN/ROT = Gruppe hoch/runter";
-    list.appendChild(hintEl);
 }
 
 function grpAnwenden() {
@@ -3245,12 +3239,15 @@ function grpAnwenden() {
 }
 
 function grpAllesMarkieren() {
+    var scope = state.gScope;
+    var prefs = makeCatPrefs(scope);
+    prefs.setAllHidden(gSourceCats(scope), false);   /* sofort speichern */
     Object.keys(state.grpMarks).forEach(function (k) { state.grpMarks[k] = true; });
     document.querySelectorAll("#grp-list .grp-row").forEach(function (row) {
         var id = row.getAttribute("data-gid");
         state.grpMarks[id] = true;
         row.className = "grp-row grp-nav";
-        var name = row.textContent.replace(/^[○●]\s*/, "");
+        var name = row.getAttribute("data-row-name") || "";
         row.textContent = "●  " + name;
     });
 }
@@ -3763,6 +3760,11 @@ function init() {
     };
     document.getElementById("btn-grp-all").onclick = grpAllesMarkieren;
     document.getElementById("btn-grp-apply").onclick = grpAnwenden;
+    document.getElementById("btn-grp-multi").onclick = function () {
+        /* Desktop-Workflow ohne Halten: alles markiert startend,
+           abwaehlen was weg, "NUR MARKIERTE BEHALTEN" blendet Rest aus. */
+        openCatMenu(state.gScope, gSourceCats(state.gScope)[0], 1);
+    };
     document.getElementById("btn-grp-show").onclick = grpAlleEinblenden;
     document.getElementById("btn-grp-num").onclick = function () {
         makeCatPrefs(state.gScope).setSortMode("num"); grpSortieren();
@@ -3813,16 +3815,14 @@ function init() {
             if (e.keyCode === 409) { e.preventDefault(); prefs.moveUp(catObj.category_id, cats); renderGroups(); }
             else if (e.keyCode === 403) { e.preventDefault(); prefs.moveDown(catObj.category_id, cats); renderGroups(); }
             else if (e.keyCode === 13 || e.keyCode === 29443) {
-                /* OK HALTEN = Einzeln-Menue (Umbenennen, Sortier-Zyklus,
-                   Einzeln ausblenden). Kurzer OK = markieren (280ms, damit
-                   ein Halten nicht zusaetzlich umschaltet). Die MENUE-Taste
-                   ist am TV vom LG-Systemmenue belegt und wird bewusst
-                   NICHT mehr bedient. */
+                /* 1.5.3: OK oeffnet SOFORT das Einzeln-Menue. Die
+                   Original-Fernbedienung sendet kein key-repeat - die alte
+                   Halten-Erkennung (e.repeat + 280ms-Timer) funktionierte
+                   dort nie. Die MENUE-Taste selbst ist vom LG-Systemmenu
+                   belegt und wird NICHT bedient. */
+                if (e.repeat) { e.preventDefault(); return; }
                 e.preventDefault();
-                if (e.repeat) { clearTimeout(row.__okT); openCatMenu(scope, catObj, 0); return; }
-                var sl = row;
-                clearTimeout(sl.__okT);
-                sl.__okT = setTimeout(function () { sl.click(); }, 280);
+                openCatMenu(scope, catObj, 0);
             }
         }
     }, true);
@@ -4232,15 +4232,16 @@ function init() {
         if (e.keyCode !== 13 && e.keyCode !== 29443) return;
         var el = document.activeElement;
         if (!el) return;
+        /* innerhalb des Gruppen-Menues gilt OK direkt (markieren, Buttons);
+           das Halten-Menue nur in den SEITEN-Kategorien. Original-FBs
+           senden kein repeat: dort bleibt OK = waehlen, das Menue kommt
+           aus Einstellungen bzw. Zeiger-Langpress. */
+        if (el.closest && el.closest("#menu-body")) { el.click(); return; }
         if (el.classList.contains("cat")) {
+            if (e.repeat) { katMenueVonEl(el); return; }
             e.preventDefault();
             e.stopPropagation();
-            if (e.repeat) { clearTimeout(el.__okT); katMenueVonEl(el); return; }
-            /* Kurzer Druck = anwaehlen (leicht verzoegert, damit ein HALTEN
-               als Menue-Taste erkannt wird und NICHT zusaetzlich waehlt) */
-            var self = el;
-            clearTimeout(self.__okT);
-            self.__okT = setTimeout(function () { self.click(); }, 280);
+            el.click();
             return;
         }
         if (el.classList.contains("ch") || el.classList.contains("grid-item")) {

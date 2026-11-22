@@ -269,7 +269,7 @@
 
         <!-- ===================== GRUPPEN-VERWALTUNG (v1.5.0) ===================== -->
         <section id="view-groups" class="view hidden">
-            <div class="settings">
+            <div class="settings grp-full">
                 <div class="settings-head">
                     <div class="pane-title">Gruppen sortieren &amp; ausblenden</div>
                     <button id="btn-groups-back" class="btn-ghost">← Zurück</button>
@@ -281,6 +281,7 @@
                     <span class="grp-hint">GELB alles markieren · BLAU nur markierte zeigen</span>
                 </div>
                 <div class="grp-actions" id="grp-actions">
+                    <button id="btn-grp-multi" class="btn-primary small grp-nav">🎯 Mehrere markieren</button>
                     <button id="btn-grp-all" class="btn-ghost grp-nav">✓ Alle markieren</button>
                     <button id="btn-grp-apply" class="btn-primary small grp-nav">Nur markierte zeigen</button>
                     <button id="btn-grp-show" class="btn-ghost grp-nav">Alle einblenden</button>
@@ -289,6 +290,13 @@
                     <button id="btn-grp-man" class="btn-ghost grp-nav">☰ Manuell</button>
                 </div>
                 <div class="settings-body" id="grp-list"></div>
+                <div class="grp-legend" id="grp-legend">
+                    OK = Gruppe verwalten (ausblenden, umbenennen, sortieren) ·
+                    <span style="color:#57D98A;">GRÜN/ROT</span> = Gruppe hoch/runter ·
+                    <span style="color:#FFC94D;">GELB</span> alles markieren ·
+                    <span style="color:#4D9FFF;">BLAU</span> nur markierte zeigen ·
+                    <span style="color:#FF6B6B;">BACK</span> zurück · Änderungen sofort gespeichert
+                </div>
             </div>
         </section>
 
