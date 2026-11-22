@@ -1,5 +1,16 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.7 — 22.11.2026
+
+Filme und Serien steuerkreuzfest.
+
+- In Filme/Serien kam das Steuerkreuz nicht aus der Tab-Zeile raus:
+  die Kategorie-Zeilen sind Divs ohne tabindex — nie fokussierbar.
+  Beide Render-Pfade setzen jetzt tabIndex 0 („Alle Filme", Gruppen-Zeilen).
+- Wirkweise am Gerät/Harness: Tab DOWN → Kategorie, DOWN → nächste
+  Kategorie, RIGHT → Streams (Poster-Raster), LEFT zurück.
+- Tests N1–N20 grün, Basis-Suite grün.
+
 ## 1.5.6 — 22.11.2026
 
 Einstellungen per Steuerkreuz bedienbar.

@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.6";
+var APP_VERSION = "1.5.7";
 
 var state = {
     playerId: null,
@@ -1229,7 +1229,8 @@ function afterUnlock() {
                     if (!state.xmltv) {
                         loadXmltv().then(function () {
                             if (state.tab === "epg") renderEpg();
-                            if (state.currentView === "view-home" && state.tab === "live") renderLiveChannels();
+                            if (state.currentView === "view-home" &&
+                                (!state.tab || state.tab === "live")) renderLiveChannels();
                         }).catch(function () {});
                     }
                 }, 1500);
@@ -1437,8 +1438,12 @@ function loadAll(hintergrund) {
             setTimeout(function () {
                 if (!state.xmltv) {
                     loadXmltv().then(function () {
+                        /* state.tab ist beim Live-Start null (nicht "live") —
+                           vorher blieben die Zeilen nach dem EPG-Laden auf
+                           "Keine EPG-Daten" stehen, bis irgendwer neu renderte. */
                         if (state.tab === "epg") renderEpg();
-                        else if (state.currentView === "view-home" && state.tab === "live") renderLiveChannels();
+                        else if (state.currentView === "view-home" &&
+                                 (!state.tab || state.tab === "live")) renderLiveChannels();
                     }).catch(function () {});
                 }
             }, 1500);
@@ -1480,9 +1485,28 @@ function loadSeries() {
  *  XMLTV EPG (Provider-xmltv.php)
  * ===================================================================== */
 
-function loadXmltv() {
-    var p = primaryProvider();
-    var url = (p.server_url || "").replace(/\/+$/, "") + "/xmltv.php?username=" + encodeURIComponent(p.username) + "&password=" + encodeURIComponent(p.password);
+/* v1.5.7: XMLTV-Parse aus dem Hauptthread ausgelagert.
+   Vorher lief parseXmltv() synchron ueber 60–100 MB XML — die
+   Fernbedienung war in dieser Zeit tot ("ich muss immer einen Augenblick
+   warten"). Jetzt holt und parst ein Web Worker; der Hauptthread bekommt
+   nur die fertige, gefilterte Struktur. */
+
+function xmltvAusWorker(payload) {
+    var byId = {}, src = payload.byId || {};
+    for (var ch in src) {
+        if (!Object.prototype.hasOwnProperty.call(src, ch)) continue;
+        var a = src[ch], list = new Array(a.length);
+        for (var i = 0; i < a.length; i++) {
+            list[i] = { start: a[i][0], stop: a[i][1], title: a[i][2] };
+        }
+        byId[ch] = list;
+    }
+    return { byId: byId, byName: payload.byName || {}, ready: true, geladenUm: Date.now() };
+}
+
+/* Alter Weg (synchron) — bleibt als Rueckfallebene, falls ein Geraet keine
+   Worker erlaubt oder der Worker nicht startet. */
+function xmltvKlassisch(url) {
     return http("GET", url, { timeout: 30000 }).then(function (xhr) {
         if (xhr.status !== 200) throw new Error("HTTP " + xhr.status);
         state.xmltv = parseXmltv(xhr.responseText);
@@ -1491,6 +1515,46 @@ function loadXmltv() {
         try { xhr.responseText = null; } catch (e) {}
     }).catch(function () {
         state.xmltv = { byId: {}, byName: {}, ready: false };
+    });
+}
+
+function loadXmltv() {
+    var p = primaryProvider();
+    var url = (p.server_url || "").replace(/\/+$/, "") + "/xmltv.php?username=" + encodeURIComponent(p.username) + "&password=" + encodeURIComponent(p.password);
+    if (typeof Worker === "undefined") return xmltvKlassisch(url);
+
+    var jetzt = Date.now();
+    return new Promise(function (resolve, reject) {
+        var w = null;
+        try { w = new Worker("js/xmltv-worker.js"); } catch (e) { w = null; }
+        if (!w) { xmltvKlassisch(url).then(resolve, reject); return; }
+
+        var fertig = false;
+        function aufraeumen() { try { w.terminate(); } catch (e) {} }
+        var notTimer = setTimeout(function () {
+            if (fertig) return;
+            fertig = true; aufraeumen();
+            /* Worker haengt (alter Kern / kein Thread): synchron nachziehen,
+               damit der Nutzer trotzdem EPG bekommt. */
+            xmltvKlassisch(url).then(resolve, reject);
+        }, 60000);
+
+        w.onmessage = function (ev) {
+            if (fertig) return;
+            fertig = true;
+            clearTimeout(notTimer); aufraeumen();
+            var d = ev.data || {};
+            if (d.error || !d.byId) { reject(new Error(d.error || "Worker ohne Daten")); return; }
+            state.xmltv = xmltvAusWorker(d);
+            resolve();
+        };
+        w.onerror = function () {
+            if (fertig) return;
+            fertig = true;
+            clearTimeout(notTimer); aufraeumen();
+            xmltvKlassisch(url).then(resolve, reject);
+        };
+        w.postMessage({ url: url, von: jetzt - EPG_VON_MS, bis: jetzt + EPG_BIS_MS });
     });
 }
 
@@ -1600,6 +1664,25 @@ function nowNext(ch) {
  *  Live-TV Rendering
  * ===================================================================== */
 
+/* v1.5.7: Nach der Gruppenauswahl gehoert der Fokus in die SENDERLISTE.
+   Vorher baute renderLiveCategories() die Seitenleiste neu, das fokussierte
+   Element verschwand, document.activeElement fiel auf BODY — und die
+   naechste Pfeiltaste landete ueber ersterFokus() wieder im Tab "Live-TV".
+   Genau das hat Smarty als "Cursor springt nach oben" gemeldet. */
+function fokusErstenSender() {
+    setTimeout(function () {
+        var el = document.getElementById("live-channels");
+        if (!el) return;
+        var a = document.activeElement;
+        /* Nicht klauben, wenn der Fokus schon sinnvoll in der Liste steht. */
+        if (a && a !== document.body && a.closest && a.closest("#live-channels")) return;
+        el.scrollTop = 0;
+        if (el.onscroll) { try { el.onscroll(); } catch (e) {} }
+        var erstes = el.querySelector(".ch");
+        if (erstes) fokusSetzen(erstes);
+    }, 0);
+}
+
 function renderLiveCategories() {
     var el = document.getElementById("live-categories");
     el.innerHTML = "";
@@ -1608,7 +1691,11 @@ function renderLiveCategories() {
     all.className = "cat" + (state.selectedLiveCat === null ? " active" : "");
     all.textContent = "Alle Kanäle";
     all.ondblclick = function () { pickCats("live", state.categories); };
-    all.onclick = function () { state.selectedLiveCat = null; renderLiveCategories(); renderLiveChannels(); };
+    all.onclick = function () {
+        state.selectedLiveCat = null;
+        renderLiveCategories(); renderLiveChannels();
+        fokusErstenSender();
+    };
     /* tabIndex: ohne das ist ein <div> fuer das Steuerkreuz unsichtbar.
        webOS springt mit den Pfeiltasten nur zwischen fokussierbaren
        Elementen - die 370 Kategorien waren bis hierher unerreichbar. */
@@ -1625,6 +1712,7 @@ function renderLiveCategories() {
             state.selectedLiveCat = (state.selectedLiveCat === FAV_CAT) ? null : FAV_CAT;
             renderLiveCategories();
             renderLiveChannels();
+            fokusErstenSender();
         };
         el.appendChild(favEl);
     }
@@ -1634,7 +1722,12 @@ function renderLiveCategories() {
         d.className = "cat" + (state.selectedLiveCat === c.category_id ? " active" : "");
         d.setAttribute("data-cat-id", c.category_id);
         d.textContent = prefs.labelOf(c);
-        d.onclick = function () { if (window.__lpFlag) return; state.selectedLiveCat = c.category_id; renderLiveCategories(); renderLiveChannels(); };
+        d.onclick = function () {
+            if (window.__lpFlag) return;
+            state.selectedLiveCat = c.category_id;
+            renderLiveCategories(); renderLiveChannels();
+            fokusErstenSender();
+        };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("live", c, 0); };
         d.tabIndex = 0;
         el.appendChild(d);
@@ -1985,6 +2078,7 @@ function renderMovies() {
     cats.innerHTML = "";
     var all = document.createElement("div");
     all.className = "cat" + (state.selectedMovieCat === null ? " active" : "");
+    all.tabIndex = 0;   /* 1.5.7: sonst ist die Kategorie per Steuerkreuz nie fokusierbar */
     all.textContent = "Alle Filme";
     all.onclick = function () { state.selectedMovieCat = null; renderMovies(); };
     cats.appendChild(all);
@@ -1992,6 +2086,7 @@ function renderMovies() {
     mprefs.applyTo(state.vodCategories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedMovieCat === c.category_id ? " active" : "");
+        d.tabIndex = 0;   /* 1.5.7: Fokus-Spieler */
         d.setAttribute("data-mcat-id", c.category_id);
         d.textContent = mprefs.labelOf(c);
         d.onclick = function () { if (window.__lpFlag) return; state.selectedMovieCat = c.category_id; renderMovies(); };
@@ -2023,6 +2118,7 @@ function renderSeries() {
     cats.innerHTML = "";
     var all = document.createElement("div");
     all.className = "cat" + (state.selectedSeriesCat === null ? " active" : "");
+    all.tabIndex = 0;   /* 1.5.7: sonst ist die Kategorie per Steuerkreuz nie fokusierbar */
     all.textContent = "Alle Serien";
     all.onclick = function () { state.selectedSeriesCat = null; renderSeries(); };
     cats.appendChild(all);
@@ -2030,6 +2126,7 @@ function renderSeries() {
     sprefs.applyTo(state.seriesCategories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedSeriesCat === c.category_id ? " active" : "");
+        d.tabIndex = 0;   /* 1.5.7: Fokus-Spieler */
         d.setAttribute("data-scat-id", c.category_id);
         d.textContent = sprefs.labelOf(c);
         d.onclick = function () { if (window.__lpFlag) return; state.selectedSeriesCat = c.category_id; renderSeries(); };
