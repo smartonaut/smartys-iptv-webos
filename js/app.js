@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.11";
+var APP_VERSION = "1.5.12";
 
 var state = {
     playerId: null,
@@ -4403,6 +4403,17 @@ function init() {
            Spaltenwechsel - die Pfeiltasten dort sind untaetig, alles
            laeuft hoch/runter. */
         if (state.currentView === "view-groups") return navGrpX(delta);   /* 1.5.4 */
+        if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail") {
+            /* 1.5.12: die Hero-Knoepfe liegen NEBENEINANDER - left/rechts
+               laufen durch die Detail-Knopf-Zeile (vorher still - Smarty
+               kam so nur auf "Abspielen" und "Zurueck"). */
+            var dz = fokusListe("detail");
+            var di = dz.indexOf(document.activeElement);
+            if (di < 0) { if (dz.length) fokusSetzen(dz[0]); return true; }
+            var dn = di + delta;
+            if (dn >= 0 && dn < dz.length) fokusSetzen(dz[dn]);
+            return true;
+        }
         if (state.currentView === "view-settings") return true;
         if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail") return true;   /* 1.5.9 */
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, false);
