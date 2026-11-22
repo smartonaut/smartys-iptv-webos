@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.16";
+var APP_VERSION = "1.5.17";
 
 var state = {
     playerId: null,
@@ -4512,7 +4512,30 @@ function init() {
     }
 
     document.addEventListener("keydown", function (e) {
-        if (state.currentView === "view-player") return;   /* im Player nicht eingreifen */
+        /* 1.5.17: im Film-/Serien-Player spulen die Pfeiltasten:
+           LEFT = 10 s zurueck, RIGHT = 10 s vor. Live-TV bewusst ausgenommen
+           (keine feste Dauer). */
+        if (state.currentView === "view-player") {
+            var kp = e.keyCode;
+            if (kp !== 37 && kp !== 39) return;
+            var vp = document.getElementById("video");
+            var cbp = state.currentPlayback;
+            if (!cbp || cbp.kind !== "vod" || !vp || !isFinite(vp.duration) || vp.duration <= 0) return;
+            var springP = (kp === 39 ? 10 : -10);
+            try {
+                vp.currentTime = Math.max(0, Math.min(vp.duration - 1, vp.currentTime + springP));
+            } catch (er) { return; }
+            var sk = document.getElementById("osd-skip");
+            if (sk) {
+                sk.textContent = (kp === 39 ? "▶▶ +10 s" : "◀◀ −10 s");
+                sk.classList.remove("hidden");
+                clearTimeout(state.skipTimer);
+                state.skipTimer = setTimeout(function () { sk.classList.add("hidden"); }, 1200);
+            }
+            showOsd();
+            e.preventDefault();
+            return;
+        }
         /* In einem Eingabefeld gehoeren die Pfeiltasten dem Text bzw. der
            Bildschirmtastatur, nicht der Navigation. */
         var ae = document.activeElement;
