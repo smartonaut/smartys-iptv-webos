@@ -55,6 +55,18 @@
  *  Pipeline (Bild nach ~1,3 s statt 4,8 s, kein JS-Transmuxing).
  *  hls.js bleibt Fallback, VOD (mp4) spielt ab jetzt ebenfalls nativ.
  *
+ *  v1.5.0 — Options- & Bedienungsausbau:
+ *  - Gruppen-Verwaltung (Vollbild): alles markieren, Gewuenschtes
+ *    auswaehlen, "Nur markierte zeigen" blendet den Rest aus; A-Z; fuer
+ *    Live-TV, Filme und Serien
+ *  - Vorschaufenster in der Senderliste: stilles Live-Bild + EPG mit
+ *    Restlaufzeit und Fortschrittsbalken; abschaltbar
+ *  - Merken (Watchlist) fuer Filme und Serien, eigener Tab
+ *  - IMDb-Wertung/Genre/Laufzeit/Trailer im Film-Detail, Sterne im
+ *    Serien-Detail; abschaltbar
+ *  - Transparentes OSD: Titel, Uhrzeit, EPG, Laufzeitbalken mit Rest
+ *  - Einstellungen aufgeraeumt (Puffer-Knopf raus), Systemstatus kompakt
+ *
  *  Feature-Paritaet zur Android-/Desktop-App:
  *  Pairing, Live-TV, VOD (Movies/Series), EPG-Grid, Catch-up/Timeshift,
  *  Kindersicherung (PIN), Profile, Favoriten, Fortsetzen, TMDB.
@@ -65,7 +77,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.4.0";
+var APP_VERSION = "1.5.0";
 
 var state = {
     playerId: null,
@@ -108,6 +120,14 @@ var state = {
     visibleMovies: [],      // Filme: gefilterte Daten
     visibleSeries: [],      // Serien: gefilterte Daten
     memguard: { timer: null, bereinigungen: 0, stufe: "" },
+
+    /* v1.5.0 */
+    watch: {},                  // Merkenliste: key -> Merkposten (pro Profil)
+    pv: { timer: null, tick: null, sid: null, fails: 0 },   // Vorschaufenster
+    osdTicker: null,
+    gScope: "live",             // Gruppen-Verwaltung: active Zeile
+    grpMarks: {},               // category_id(String) -> markiert
+    trailerFrom: "view-movie-detail",
 };
 
 /* =====================================================================
@@ -127,6 +147,7 @@ function profileScope(base) { return base + "__" + state.activeProfile; }
 
 function loadProfileState() {
     state.favorites = lsGet(profileScope("fav"), {});
+    state.watch = lsGet(profileScope("watch"), {});
     state.resume = lsGet(profileScope("resume"), {});
     state.recent = lsGet(profileScope("recent"), []);
 }
@@ -382,7 +403,8 @@ function timeshiftUrl(streamId, startEpoch, durationHours) {
  * ===================================================================== */
 
 var VIEWS = ["view-pin", "view-profiles", "view-pairing", "view-unlock", "view-loading", "view-home",
-             "view-movie-detail", "view-series-detail", "view-settings", "view-player"];
+             "view-movie-detail", "view-series-detail", "view-settings", "view-player",
+             "view-groups", "view-trailer"];
 
 function show(id) {
     for (var i = 0; i < VIEWS.length; i++) {
@@ -390,6 +412,8 @@ function show(id) {
         if (VIEWS[i] === id) el.classList.remove("hidden"); else el.classList.add("hidden");
     }
     state.currentView = id;
+    /* Vorschaufenster haengt an der Live-Ansicht - ausserhalb schliessen */
+    if (id !== "view-home") pvStop();
     /* Hintergrund-Bereinigung kann Listen geleert haben - beim Anzeigen
        der Hauptansicht zuerst dafuer sorgen, dass alles wieder steht. */
     if (id === "view-home") {
@@ -522,6 +546,16 @@ function makeCatPrefs(scope) {
     cp.order = function () { return lsGet(catK(scope, "order"), []); };
     cp.hidden = function () { return lsGet(catK(scope, "hidden"), []); };
     cp.renames = function () { return lsGet(catK(scope, "rename"), {}); };
+    /* Sortiermodus wie in der Desktop-App: Nummer ("num", Playlist-Reihenfolge)
+       -> A-Z ("name") -> Manuell ("manual", gespeicherte Reihenfolge).
+       Default: "manual", sobald eine gespeicherte Reihenfolge existiert,
+       sonst "num" - damit aeltere Installationen nicht umspringen. */
+    cp.setSortMode = function (m) { lsSet(catK(scope, "sortmode"), m); };
+    cp.sortMode = function () {
+        var m = lsGet(catK(scope, "sortmodus"), "");
+        if (m) return m;
+        return cp.order().length ? "manual" : "num";
+    };
     /* Typen normalisieren: category_id kommt als Number aus der Xtream-API,
        data-cat-id liefert einen String. ohne String() findet indexOf nichts
        und das Ausblenden wirkt um eine Aktion versetzt. */
@@ -533,6 +567,12 @@ function makeCatPrefs(scope) {
     cp.hasCustom = function (catId) { return !!(cp.renames()[catId] && cp.renames()[catId].trim()); };
     cp.applyTo = function (cats) {
         var list = (cats || []).filter(function (c) { return !cp.isHidden(c.category_id); });
+        var modus = cp.sortMode();
+        if (modus === "name") {
+            list.sort(function (a, b) { return cp.labelOf(a).localeCompare(cp.labelOf(b), "de"); });
+            return list;
+        }
+        if (modus === "num") return list;
         var ord = cp.order();
         if (!ord.length) return list;
         var inOrd = [];
@@ -549,21 +589,20 @@ function makeCatPrefs(scope) {
     };
     cp.saveOrder = function (ids) { lsSet(catK(scope, "order"), ids); };
     cp.listSorted = function (cats, asc) {
-        var list = (cats || []).slice().sort(function (a, b) {
-            return cp.labelOf(a).localeCompare(cp.labelOf(b), "de");
-        });
-        if (!asc) list.reverse();
-        cp.saveOrder(list.map(function (c) { return c.category_id; }));
+        cp.setSortMode("name");
+        /* Reihenfolge-Daten bleiben unangetastet: Ruecksprung auf
+           "Manuell" zeigt sie unverzogen weiter an. */
     };
+    /* Manuelles Verschieben schaltet auf Modus "manual" um (Desktop-Praezedenz) */
     cp.moveUp = function (catId, cats) {
         var list = cp.currentOrder(cats).slice();
         var i = list.indexOf(catId);
-        if (i > 0) { list.splice(i, 1); list.splice(i - 1, 0, catId); cp.saveOrder(list); }
+        if (i > 0) { list.splice(i, 1); list.splice(i - 1, 0, catId); cp.saveOrder(list); cp.setSortMode("manual"); }
     };
     cp.moveDown = function (catId, cats) {
         var list = cp.currentOrder(cats).slice();
         var i = list.indexOf(catId);
-        if (i >= 0 && i < list.length - 1) { list.splice(i, 1); list.splice(i + 1, 0, catId); cp.saveOrder(list); }
+        if (i >= 0 && i < list.length - 1) { list.splice(i, 1); list.splice(i + 1, 0, catId); cp.saveOrder(list); cp.setSortMode("manual"); }
     };
     cp.setLabel = function (catId, label) {
         var r = cp.renames();
@@ -786,6 +825,15 @@ function renderCatMenuMode() {
         var r = function (c) {
             var row = document.createElement("div");
             row.className = "menu-row";
+            var modi = ["num", "name", "manual"];
+            var modusLabel = { num: "Nummer", name: "A–Z", manual: "Manuell" };
+            row.appendChild(menuButton(" → Sortierung: " + modusLabel[cp.sortMode()], "mini", function () {
+                var i = modi.indexOf(cp.sortMode());
+                cp.setSortMode(modi[(i + 1) % modi.length]);
+                menuRefresh();
+                renderCatMenuMode();
+            }));
+            body.appendChild(row);
             var vis = prefs.applyTo(cats).filter(function (c2) { return c2.category_id === cat.category_id; });
             var first = vis.length === 0 || vis[0].category_id === cat.category_id;
             var last = vis.length > 0 && vis[vis.length - 1].category_id === cat.category_id;
@@ -804,7 +852,13 @@ function renderCatMenuMode() {
             if (prefs.hasCustom(cat.category_id)) {
                 r2.appendChild(menuButton("🔁 Originalname zurücksetzen", "", function () { prefs.setLabel(cat.category_id, ""); menuRefresh(); openCatMenu(scope, cat, 0); }));
             }
-            r2.appendChild(menuButton("🎯 Mehrere markieren", "", function () { menuState.marked = [cat.category_id]; openCatMenu(scope, cat, 1); }));
+            r2.appendChild(menuButton("🎯 Mehrere markieren", "", function () {
+                /* Workflow des Nutzers wie auf dem Desktop: beim Eintritt
+                   ALLES markiert; abwaehlen, was weg; "Nur markierte
+                   behalten" blendet den Rest komplett aus. */
+                menuState.marked = prefs.applyTo(cats).map(function (c2) { return c2.category_id; });
+                openCatMenu(scope, cat, 1);
+            }));
             body.appendChild(r2);
             var r3 = document.createElement("div");
             r3.className = "menu-row";
@@ -830,7 +884,16 @@ function renderCatMenuMode() {
         var top = document.createElement("div");
         top.className = "menu-topbtns";
         var marked = menuState.marked;
-        var visibleList = prefs.applyTo(cats);
+        /* Komplette Liste (auch ausgeblendete), im aktiven Sortiermodus */
+        var alle = function (list, p2) {
+            var kopie = list.slice();
+            if (p2.sortMode() === "name") kopie.sort(function (a2, b2) { return p2.labelOf(a2).localeCompare(p2.labelOf(b2), "de"); });
+            var ord = p2.currentOrder(list);
+            var sortiert = [];
+            ord.forEach(function (id) { for (var q = 0; q < kopie.length; q++) if (String(kopie[q].category_id) === String(id)) { sortiert.push(kopie[q]); kopie.splice(q, 1); break; } });
+            return sortiert.concat(kopie);
+        };
+        var visibleList = alle(cats, prefs);
         top.appendChild(menuButton("✅ Alle markieren", "mini", function () {
             menuState.marked = visibleList.map(function (c) { return c.category_id; });
             renderCatMenuMode();
@@ -871,7 +934,8 @@ function renderCatMenuMode() {
 
         var counter = document.createElement("div");
         counter.className = "menu-counter";
-        counter.textContent = menuState.marked.length + " von " + visibleList.length + " markiert  (MARKIERT = BEHALTEN)";
+        counter.textContent = "Markiert: " + menuState.marked.length + " von " + visibleList.length +
+            " - OK waehlt an/ab, NUR MARKIERTE BEHALTEN blendet alle anderen aus";
         body.appendChild(counter);
 
         var list = document.createElement("div");
@@ -1010,6 +1074,13 @@ function pickCats(scope, cats) {
 function openOverlayRaw(title, scope) {
     document.getElementById("menu-title").textContent = title;
     document.getElementById("menu-overlay").classList.remove("hidden");
+    pvStop();
+    trailerQuell();
+}
+
+function trailerQuell() {
+    var f = document.getElementById("trailer-frame");
+    if (f && state.currentView !== "view-trailer") f.src = "";
 }
 
 function onMenuKey() {
@@ -1537,6 +1608,7 @@ function renderLiveCategories() {
         };
         el.appendChild(favEl);
     }
+    catHinweisZeile(el);
     prefs.applyTo(state.categories).forEach(function (c) {
         var d = document.createElement("div");
         d.className = "cat" + (state.selectedLiveCat === c.category_id ? " active" : "");
@@ -1592,6 +1664,13 @@ function computeVisibleChannels() {
     for (var i = 0; i < shown.length; i++) idx[String(shown[i].stream_id)] = i;
     state.chansIdx = idx;
     return shown;
+}
+
+function catHinweisZeile(el) {
+    var h = document.createElement("div");
+    h.className = "cat-hint";
+    h.textContent = "Menü-Taste auf einer Gruppe = sortieren, ausblenden, mehr markieren";
+    el.appendChild(h);
 }
 
 function renderLiveChannels() {
@@ -1669,12 +1748,18 @@ function renderLiveChannels() {
         var ch2 = state.visibleChans[state.chansIdx[String(ziel.getAttribute("data-ch-id"))]];
         if (ch2) openChanMenu(ch2);
     };
-    /* Zap-Prefetch: Fokus ruht kurz auf einem Sender -> Playlist anwaermen */
+    /* Zap-Prefetch + Vorschau: Fokus ruht kurz auf einem Sender ->
+       Playlist anwaermen, nach 900 ms kleines Live-Bild im Vorschaukasten */
     el.onfocusin = function (ev) {
         var ziel = ev.target;
         if (ziel && ziel.classList && ziel.classList.contains("ch")) {
             var sid = ziel.getAttribute("data-ch-id");
-            if (sid) zapPrefetch(sid);
+            if (sid) {
+                zapPrefetch(sid);
+                pvPlan(sid);
+            }
+        } else {
+            pvStop();   /* Fokus wandert in Suche/Kategorien: Vorschau zu */
         }
     };
 
@@ -1893,6 +1978,7 @@ function renderMovies() {
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("movies", c, 0); };
         cats.appendChild(d);
     });
+    catHinweisZeile(cats);
 
     var q = (document.getElementById("movies-search").value || "").toLowerCase();
     var visibleCatIds = mprefs.applyTo(state.vodCategories).map(function (c) { return c.category_id; });
@@ -1930,6 +2016,7 @@ function renderSeries() {
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("series", c, 0); };
         cats.appendChild(d);
     });
+    catHinweisZeile(cats);
 
     var q = (document.getElementById("series-search").value || "").toLowerCase();
     var visibleCatIds = sprefs.applyTo(state.seriesCategories).map(function (c) { return c.category_id; });
@@ -1970,11 +2057,13 @@ function openMovieDetail(m) {
         '<div class="detail-actions">' +
         '<button class="btn-primary" id="md-play">' + (canResume ? '▶ Fortsetzen' : '▶ Abspielen') + '</button>' +
         (canResume ? '<button class="btn-ghost" id="md-restart">↺ Von vorne</button>' : '') +
-        (m.trailer ? '<button class="btn-ghost" id="md-trailer">▶ Trailer</button>' : '') +
+        '<button class="btn-ghost" id="md-trailer" style="display:none">▶ Trailer</button>' +
         '<button class="btn-ghost" id="md-imdb">IMDb</button>' +
         '<button class="btn-ghost" id="md-fs">Filmstarts</button>' +
+        '<button class="btn-ghost" id="md-watch">' + (watchHas("movie", m.stream_id) ? '✓ Gemerkt' : '☆ Merken') + '</button>' +
         '<button class="btn-ghost" id="md-fav">' + (state.favorites["movie:" + m.stream_id] ? '★ Favorit' : '☆ Favorit') + '</button>' +
         '</div>' +
+        '<div class="chips" id="md-info"></div>' +
         '<div class="detail-desc" id="md-desc">Beschreibung wird geladen…</div>' +
         '</div></div>';
 
@@ -1988,14 +2077,23 @@ function openMovieDetail(m) {
     };
     /* Nur Verweise, kein Scraping (filmstarts.de sperrt /suchen/ per robots.txt) */
     document.getElementById("md-imdb").onclick = function () {
-        var q = encodeURIComponent(m.name + (movieYear(m) ? " " + movieYear(m) : ""));
-        showQrOverlay("IMDb — " + m.name, "https://www.imdb.com/find/?q=" + q);
+        var imdbId = this.getAttribute("data-imdb-id");
+        if (imdbId) {
+            showQrOverlay("IMDb — " + m.name, "https://www.imdb.com/title/" + imdbId + "/");
+        } else {
+            var q = encodeURIComponent(m.name + (movieYear(m) ? " " + movieYear(m) : ""));
+            showQrOverlay("IMDb — " + m.name, "https://www.imdb.com/find/?q=" + q);
+        }
     };
     document.getElementById("md-fs").onclick = function () {
         showQrOverlay("Filmstarts — " + m.name, "https://www.filmstarts.de/suche/?q=" + encodeURIComponent(m.name));
     };
-    if (m.trailer) document.getElementById("md-trailer").onclick = function () {
-        window.open("https://www.youtube.com/watch?v=" + m.trailer, "_blank");
+    document.getElementById("md-watch").onclick = function () {
+        watchToggle("movie", m);
+        this.textContent = watchHas("movie", m.stream_id) ? '✓ Gemerkt' : '☆ Merken';
+    };
+    document.getElementById("md-trailer").onclick = function () {
+        openTrailer(this.getAttribute("data-yt") || m.trailer, "movies");
     };
     document.getElementById("md-fav").onclick = function () {
         var k = "movie:" + m.stream_id;
@@ -2004,12 +2102,61 @@ function openMovieDetail(m) {
         openMovieDetail(m);
     };
 
+    /* IMDb-/Trailer-Zusatzinfos aus der Provider-Quelle (get_vod_info) -
+       abschaltbar in den Einstellungen */
+    if (lsGet("imdbinfo", "ein") === "ein") {
+        (function () {
+            var p2 = primaryProvider();
+            xtream(p2, "get_vod_info", { stream_id: m.stream_id }).then(function (antw) {
+                var box = document.getElementById("md-info");
+                var trailerKopf = document.getElementById("md-trailer");
+                var info = antw && antw.info ? antw.info : (antw && antw.movie_data ? antw.movie_data : null);
+                if (!box) return;
+                if (!info) { box.innerHTML = ""; return; }
+                var teile = [];
+                if (info.rating && +info.rating > 0) teile.push('<span class="chip chip-imdb">IMDb ' + esc(String(info.rating)) + '</span>');
+                if (info.genre) teile.push('<span class="chip">' + esc(String(info.genre).split(",")[0]) + '</span>');
+                if (info.releasedate && info.releasedate !== "n/a") teile.push('<span class="chip">' + esc(info.releasedate) + '</span>');
+                else if (info.year) teile.push('<span class="chip">' + esc(info.year) + '</span>');
+                if (info.duration) {
+                    var dM = parseInt(info.duration, 10);
+                    if (dM > 0) teile.push('<span class="chip">' + Math.floor(dM / 60) + " h " + (dM % 60) + " min</span>");
+                }
+                box.innerHTML = teile.join("");
+                var yt = info.youtube_trailer;
+                if (yt && trailerKopf) {
+                    trailerKopf.style.display = "";
+                    trailerKopf.setAttribute("data-yt", yt);
+                }
+                /* get_vod_info liefert oft auch die echte Handlung */
+                var desc = document.getElementById("md-desc");
+                if (desc && info.movie_plot && !desc.dataset.filled) {
+                    desc.innerHTML = '<p>' + esc(String(info.movie_plot)) + '</p>';
+                    desc.dataset.filled = "1";
+                }
+            }).catch(function () {});
+        })();
+    }
+
     if (m.tmdb) {
         fetchTmdbMovie(m.tmdb).then(function (meta) {
             if (meta && meta.overview) {
                 var chips = [];
+                var infoBox = document.getElementById("md-info");
+                /* Bewertung: Provider-Wertung (get_vod_info) hat Vorrang,
+                   sonst TMDB-Bewertung (vote_average, 10er-Skala) */
+                if (infoBox && infoBox.innerHTML === "" && +meta.vote_average > 0) {
+                    infoBox.innerHTML = '<span class="chip chip-imdb">★ ' + (+meta.vote_average).toFixed(1) + '</span>' +
+                        '<span class="chip">' + esc((meta.genres || []).map(function (g) { return g.name || g; })[0] || "") + '</span>' +
+                        (meta.runtime ? '<span class="chip">' + meta.runtime + ' min</span>' : "") +
+                        '<span class="chip">TMDB</span>';
+                    if (meta.imdb_id) {
+                        var impBtn = document.getElementById("md-imdb");
+                        if (impBtn) impBtn.setAttribute("data-imdb-id", meta.imdb_id);
+                    }
+                }
                 if (meta.runtime) chips.push(meta.runtime + " Min");
-                (meta.genres || []).slice(0, 3).forEach(function (g) { chips.push(g); });
+                (meta.genres || []).slice(0, 3).forEach(function (g) { chips.push(g.name || g); });
                 document.getElementById("md-desc").innerHTML =
                     (meta.tagline ? '<div class="tagline">' + esc(meta.tagline) + '</div>' : '') +
                     (chips.length ? '<div class="chips">' + chips.map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join("") + '</div>' : '') +
@@ -2031,12 +2178,22 @@ function openSeriesDetail(serie) {
         '<div class="detail-info">' +
         '<button class="btn-ghost" id="sd-back">← Zurück</button>' +
         '<div class="detail-title">' + esc(serie.name) + '</div>' +
-        (serie.genre ? '<div class="detail-meta">' + esc(serie.genre) + '</div>' : '') +
+        (serie.genre ? '<div class="detail-meta">' + esc(serie.genre) + (serie.rating_5based && +serie.rating_5based > 0 ? ' · ★ ' + (+serie.rating_5based).toFixed(1) : '') + '</div>' : '') +
         (serie.plot ? '<div class="detail-desc"><p>' + esc(serie.plot) + '</p></div>' : '') +
+        '<div class="detail-actions">' +
+        '<button class="btn-ghost" id="sd-watch">' + (watchHas("series", serie.series_id) ? '✓ Gemerkt' : '☆ Merken') + '</button>' +
+        '<span class="watch-sub" id="sd-watch-hint"></span>' +
+        '</div>' +
         '<div id="sd-seasons" class="seasons"></div>' +
         '</div></div>';
 
     document.getElementById("sd-back").onclick = function () { show("view-home"); activateTab("series"); };
+    document.getElementById("sd-watch").onclick = function () {
+        var dran = watchToggle("series", serie);
+        this.textContent = dran ? '✓ Gemerkt' : '☆ Merken';
+        var hint = document.getElementById("sd-watch-hint");
+        if (hint) hint.textContent = dran ? "Jetzt im Tab Merken" : "";
+    };
 
     var p = primaryProvider();
     xtream(p, "get_series_info", { series_id: serie.series_id }).then(function (info) {
@@ -2239,6 +2396,7 @@ function renderEpg() {
  * ===================================================================== */
 
 function playLive(ch) {
+    pvStop();
     var prefs = makeChanPrefs();
     if (prefs.isLocked(ch.stream_id)) {
         var needPin = !!(lsGet("pin_hash", null)) && lsGet("pin_enabled", false);
@@ -2585,16 +2743,91 @@ function startPlayback() {
     if (cb.kind === "live") startWatchdog(); else stopWatchdog();
 }
 
+/* ---------------------------------------------------------------------
+ *  OSD (v1.5.0): transparent, mit Uhrzeit, EPG-Zeile, Laufzeitbalken.
+ *  Live: Fortschritt im AKTUELLEN PROGRAMM, Endezeit + Rest.
+ *  VOD: Position/Gesamtlaenge + Rest.
+ * ------------------------------------------------------------------- */
+
+function fmtRestMs(endMs) {
+    var s = Math.max(0, Math.round((endMs - Date.now()) / 1000));
+    if (s < 90) return s + " s";
+    var m = Math.round(s / 60);
+    if (m < 90) return m + " Min";
+    return (Math.round(m / 30) / 2).toFixed(1).replace(".0", "") + " Std";
+}
+
+function fmtMs(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return (h ? h + ":" + ("0" + m).slice(-2) : String(m)) + ":" + ("0" + r).slice(-2);
+}
+
+function osdZu() {
+    clearTimeout(state.osdTimer);
+    clearTimeout(state.osdTicker);
+    state.osdTicker = null;
+    var osd = document.getElementById("osd");
+    if (osd) osd.classList.add("hidden");
+}
+
+function updateOsdData() {
+    var cb = state.currentPlayback;
+    if (!cb) return osdZu();
+    var video = document.getElementById("video");
+    var bar = document.getElementById("osd-bar");
+    var prog = document.getElementById("osd-progress");
+    var links = document.getElementById("osd-elapsed");
+    var rechts = document.getElementById("osd-remain");
+    document.getElementById("osd-clock").textContent = new Date().toTimeString().slice(0, 5);
+
+    if (cb.kind === "live") {
+        var nn = cb.channel ? nowNext(cb.channel) : null;
+        document.getElementById("osd-epg").innerHTML = (nn && nn.now) ? epgLine(nn.now, nn.next) : "";
+        if (nn && nn.now && nn.now.stop > nn.now.start) {
+            bar.classList.remove("hidden");
+            var teil = (Date.now() - nn.now.start) / (nn.now.stop - nn.now.start);
+            prog.style.width = Math.min(100, Math.max(0, Math.round(teil * 100))) + "%";
+            links.textContent = hhmm(nn.now.start) + " – " + hhmm(nn.now.stop);
+            rechts.textContent = "noch " + fmtRestMs(nn.now.stop);
+        } else {
+            bar.classList.add("hidden");
+            links.textContent = "LIVE";
+            rechts.textContent = "";
+        }
+    } else {
+        var d = video.duration || 0, t = video.currentTime || 0;
+        document.getElementById("osd-epg").innerHTML = "";
+        if (d > 0) {
+            bar.classList.remove("hidden");
+            prog.style.width = Math.min(100, Math.round(t / d * 100)) + "%";
+            links.textContent = fmtMs(t * 1000) + " von " + fmtMs(d * 1000);
+            rechts.textContent = "-" + fmtMs((d - t) * 1000);
+        } else {
+            bar.classList.add("hidden");
+            links.textContent = fmtMs(t * 1000);
+            rechts.textContent = "";
+        }
+    }
+}
+
 function showOsd() {
     var cb = state.currentPlayback;
     if (!cb) return;
     var osd = document.getElementById("osd");
     osd.classList.remove("hidden");
     document.getElementById("osd-title").textContent = cb.title;
-    var nn = cb.kind === "live" && cb.channel ? nowNext(cb.channel) : null;
-    document.getElementById("osd-epg").innerHTML = nn && nn.now ? epgLine(nn.now, nn.next) : "";
     clearTimeout(state.osdTimer);
-    state.osdTimer = setTimeout(function () { osd.classList.add("hidden"); }, 5000);
+    clearTimeout(state.osdTicker);
+    updateOsdData();
+    /* Balken laeuft im Sekundentakt mit, auch wenn nichts passiert */
+    state.osdTicker = setTimeout(function tick() {
+        var osd2 = document.getElementById("osd");
+        if (!osd2 || osd2.classList.contains("hidden")) { state.osdTicker = null; return; }
+        updateOsdData();
+        state.osdTicker = setTimeout(tick, 1000);
+    }, 1000);
+    state.osdTimer = setTimeout(osdZu, 8000);
 }
 
 /* ---------------------------------------------------------------------
@@ -2705,15 +2938,382 @@ function markWatched(id) {
 }
 
 /* =====================================================================
+ *  MERKEN — Watchlist (v1.5.0)
+ *
+ *  Filme und Serien, die interessieren, landen auf der Merkenliste.
+ *  Pro Profil gespeichert. OK in einer Merk-Kachel oeffnet das Detail.
+ * ===================================================================== */
+
+function watchHas(kind, id) {
+    return !!state.watch[kind + ":" + id];
+}
+
+function watchToggle(kind, obj) {
+    var key = kind + ":" + (obj.stream_id || obj.series_id);
+    if (state.watch[key]) {
+        delete state.watch[key];
+        lsSet(profileScope("watch"), state.watch);
+        return false;
+    }
+    state.watch[key] = {
+        t: kind,
+        name: obj.name,
+        stream_id: obj.stream_id || 0,
+        series_id: obj.series_id || 0,
+        container_extension: obj.container_extension || "mp4",
+        stream_icon: obj.stream_icon || obj.cover || "",
+        category_name: obj.category_name || obj.genre || "",
+        rating_5based: obj.rating_5based || 0,
+        added: Date.now()
+    };
+    lsSet(profileScope("watch"), state.watch);
+    return true;
+}
+
+function renderWatch() {
+    var grid = document.getElementById("watch-grid");
+    var anz = Object.keys(state.watch).length;
+    document.getElementById("watch-count").textContent = anz ? anz + " gemerkt" : "Deine Merkliste";
+    grid.innerHTML = "";
+    var eintraege = Object.keys(state.watch).map(function (k) { return state.watch[k]; });
+    eintraege.sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
+    if (!eintraege.length) {
+        var leer = document.createElement("div");
+        leer.className = "watch-leer";
+        leer.textContent = "Noch nichts gemerkt — im Film- oder Serien-Detail auf ☆ Merken druecken.";
+        grid.appendChild(leer);
+        return;
+    }
+    eintraege.forEach(function (it) {
+        var el = document.createElement("div");
+        var poster = it.stream_icon || "";
+        el.className = "grid-item";
+        el.tabIndex = 0;
+        el.innerHTML = '<div class="poster">' + (poster ? '<img src="' + esc(poster) + '" loading="lazy" decoding="async" onerror="this.style.display=\'none\'">' : '<div class="poster-empty">' + (it.t === "series" ? "📺" : "🎬") + '</div>') + '</div>' +
+            '<div class="grid-title">' + esc(it.name) + '</div>' +
+            '<div class="watch-badge">' + (it.t === "series" ? "Serie" : "Film") + '</div>';
+        var objekt = it;
+        if (it.t === "movie") {
+            var m2 = null;
+            for (var i = 0; i < state.vodMovies.length; i++) {
+                if (String(state.vodMovies[i].stream_id) === String(it.stream_id)) { m2 = state.vodMovies[i]; break; }
+            }
+            if (m2) objekt = m2;
+        }
+        el.onclick = function () {
+            if (objekt.t === "series") openSeriesDetail(objekt);
+            else openMovieDetail(objekt);
+        };
+        grid.appendChild(el);
+    });
+}
+
+/* =====================================================================
+ *  VORSCHAUfenster (v1.5.0)
+ *
+ *  Fokus ruht 900 ms auf einem Sender -> kleines stilles Bild + die
+ *  EPG-Zeile des laufenden Programms darunter, mit Fortschrittsbalken.
+ *  Zwei Dekoder gehen auf diesem Geraet (Hardware-UMS-Pipeline);
+ *  bleibt das Vorschaubild 6 Sekunden leer oder zeigt Fehler, greift
+ *  eine Notbremse (3 x probieren, dann fuer die Sitzung aus).
+ * ===================================================================== */
+
+var PV_DWELL_MS = 900;
+var PV_TIMEOUT_MS = 6000;
+
+function vorschauEin() { return lsGet("vorschau", "ein") === "ein"; }
+
+function pvPlan(sid) {
+    if (!vorschauEin() || state.pv.fails >= 3) { pvStop(); return; }
+    if (state.currentView !== "view-home" || state.tab !== "live") { pvStop(); return; }
+    if (state.pv.sid === sid) return;   /* ruht schon - nichts neu */
+    pvStop();
+    state.pv.sid = sid;
+    state.pv.timer = setTimeout(function () { pvStart(sid); }, PV_DWELL_MS);
+}
+
+function pvStart(sid) {
+    var box = document.getElementById("preview-box");
+    var v = document.getElementById("pv-video");
+    var ch = state.visibleChans[state.chansIdx[String(sid)]];
+    if (!box || !v || !ch) { pvStop(); return; }
+    box.classList.remove("hidden");
+    document.getElementById("pv-title").textContent = ch.name || "";
+    document.getElementById("pv-epg").textContent = "Vorschau wird vorbereitet…";
+    document.getElementById("pv-progress").style.width = "0%";
+    v.src = liveUrl(ch.stream_id, primaryProvider());
+    v.muted = true;
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+    var t0 = Date.now();
+    clearInterval(state.pv.tick);
+    state.pv.tick = setInterval(function () {
+        var v2 = document.getElementById("pv-video");
+        if (!v2 || state.pv.sid !== sid) { clearInterval(state.pv.tick); return; }
+        var nn = nowNext(ch);
+        var el = document.getElementById("pv-epg");
+        var pr = document.getElementById("pv-progress");
+        if (nn && nn.now) {
+            el.textContent = hhmm(nn.now.start) + " " + nn.now.title + " · noch " + fmtRestMs(nn.now.stop);
+            if (nn.now.stop > nn.now.start) {
+                pr.style.width = Math.min(100, Math.max(0, Math.round((Date.now() - nn.now.start) / (nn.now.stop - nn.now.start) * 100))) + "%";
+            }
+        } else {
+            el.textContent = "Keine EPG-Daten";
+        }
+        if (Date.now() - t0 > PV_TIMEOUT_MS && v2.readyState < 2) {
+            clearInterval(state.pv.tick);
+            state.pv.fails++;
+            if (el) el.textContent = "Vorschau hier nicht verfuegbar.";
+            pvHalt();
+            state.pv.sid = null;
+        }
+    }, 800);
+}
+
+function pvHalt() {
+    var v = document.getElementById("pv-video");
+    if (!v) return;
+    v.pause();
+    v.removeAttribute("src");
+    try { v.load(); } catch (e) {}
+}
+
+function pvStop() {
+    clearTimeout(state.pv.timer);
+    clearInterval(state.pv.tick);
+    state.pv.timer = null;
+    state.pv.tick = null;
+    state.pv.sid = null;
+    pvHalt();
+    var box = document.getElementById("preview-box");
+    if (box) box.classList.add("hidden");
+}
+
+/* Video-Fehler in der Vorschau: sofortige Notbremse */
+function pvFehlerInit() {
+    var v = document.getElementById("pv-video");
+    if (!v) return;
+    v.addEventListener("error", function () {
+        if (!state.pv.sid) return;
+        state.pv.fails++;
+        var el = document.getElementById("pv-epg");
+        if (el) el.textContent = "Vorschau hier nicht verfuegbar.";
+        clearInterval(state.pv.tick);
+        pvHalt();
+        state.pv.sid = null;
+        setTimeout(function () { if (!state.pv.sid) pvStop(); }, 1500);
+    });
+    v.addEventListener("playing", function () { state.pv.fails = 0; });
+}
+
+/* =====================================================================
+ *  GRUPPEN-VERWALTUNG (v1.5.0)
+ *
+ *  Vollbild-Verwaltung: alle Gruppen markiert; mit OK wird abgewaehlt,
+ *  was weg soll; "Nur markierte zeigen" blendet ALLEN Rest aus — genau
+ *  der Workflow: alles markieren, nur Gewolltes auswaehlen, dann alles
+ *  Unerwuenschte ausblenden. Pro Bereich (Live/Filme/Serien), gleiche
+ *  Speicher wie die bisherige Farb-Tasten-Verwaltung.
+ * ===================================================================== */
+
+function gSourceCats(scope) {
+    scope = scope || state.gScope;
+    return scope === "movies" ? state.vodCategories
+        : scope === "series" ? state.seriesCategories
+        : state.categories;
+}
+
+function openGroups(scope) {
+    state.gScope = scope || "live";
+    show("view-groups");
+    renderGroups();
+}
+
+function renderGroups() {
+    var scope = state.gScope;
+    document.querySelectorAll("#grp-scopes .grp-nav").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-scope") === scope);
+    });
+    var prefs = makeCatPrefs(scope);
+    var sortKnopf = document.getElementById("btn-grp-sort");
+    if (sortKnopf) {
+        var modusLabel = { num: "Nummer", name: "A–Z", manual: "Manuell" };
+        sortKnopf.textContent = "Sortierung: " + modusLabel[prefs.sortMode()];
+    }
+    var cats = gSourceCats(scope);
+    var list = document.getElementById("grp-list");
+    list.innerHTML = "";
+
+    /* Filme/Serien werden nachgeladen, wenn die Verwaltung vorher noch nie
+       geoeffnet war (dort ist der Ladevorgang tab-gekoppelt). */
+    if (!cats.length && scope !== "live" && !(scope === "movies" ? state.vodLoading : state.seriesLoading)) {
+        var statusZeile = document.createElement("div");
+        statusZeile.className = "grp-hint";
+        statusZeile.textContent = scope === "movies" ? "Filme werden geladen…" : "Serien werden geladen…";
+        list.appendChild(statusZeile);
+        var loader = scope === "movies" ? loadVod() : loadSeries();
+        loader.then(function () {
+            if (scope === "movies") { state.vodLoading = false; renderMovies(); }
+            else { state.seriesLoading = false; renderSeries(); }
+            if (state.currentView === "view-groups" && state.gScope === scope) renderGroups();
+        }).catch(function () {
+            if (scope === "movies") state.vodLoading = false; else state.seriesLoading = false;
+            statusZeile.textContent = "Laden fehlgeschlagen.";
+        });
+        return;
+    }
+
+    state.grpMarks = {};
+    cats.forEach(function (c) {
+        state.grpMarks[String(c.category_id)] = !prefs.isHidden(c.category_id);
+    });
+
+    /* Zeilen im AKTIVEN Sortiermodus zeigen (wie die echten Listen) */
+    var zeilen = cats.slice();
+    var m = prefs.sortMode();
+    if (m === "name") {
+        zeilen.sort(function (a, b) { return (a.category_name || "").localeCompare(b.category_name || "", "de"); });
+    } else if (m === "manual") {
+        var ord = prefs.currentOrder(cats);
+        var sortiert = [];
+        ord.forEach(function (id) {
+            for (var q = 0; q < zeilen.length; q++) {
+                if (String(zeilen[q].category_id) === String(id)) { sortiert.push(zeilen[q]); zeilen.splice(q, 1); break; }
+            }
+        });
+        zeilen = sortiert.concat(zeilen);
+    }
+
+    var zaehler = null;
+    if (scope === "live") {
+        zaehler = {};
+        state.channels.forEach(function (ch) {
+            var k = String(ch.category_id);
+            zaehler[k] = (zaehler[k] || 0) + 1;
+        });
+    }
+
+    cats.forEach(function (c) {
+        var id = String(c.category_id);
+        var row = document.createElement("div");
+        row.className = "grp-row grp-nav" + (state.grpMarks[id] ? "" : " grp-off");
+        row.tabIndex = 0;
+        row.setAttribute("data-gid", id);
+        var anzahl = zaehler ? " · " + (zaehler[id] || 0) + " Sender" : "";
+        row.setAttribute("data-row-name", c.category_name || "Unbenannt");
+        var name = c.category_name || "Unbenannt";
+        row.textContent = (state.grpMarks[id] ? "●  " : "○  ") + name + anzahl;
+        row.onclick = function () {
+            state.grpMarks[id] = !state.grpMarks[id];
+            row.className = "grp-row grp-nav" + (state.grpMarks[id] ? "" : " grp-off");
+            row.textContent = (state.grpMarks[id] ? "●  " : "○  ") + name + anzahl;
+        };
+        list.appendChild(row);
+    });
+    /* Werkzeug-Hinweis unter der Liste */
+    var hintEl = document.createElement("div");
+    hintEl.className = "grp-hint";
+    hintEl.textContent = "OK = markieren · Menü-Taste öffnet das Einzeln-Menü mit Sortier-Zyklus";
+    list.appendChild(hintEl);
+}
+
+function grpAnwenden() {
+    var scope = state.gScope;
+    var cats = gSourceCats(scope);
+    var prefs = makeCatPrefs(scope);
+    var behalten = 0;
+    cats.forEach(function (c) {
+        var id = String(c.category_id);
+        prefs.setHidden(c.category_id, !state.grpMarks[id]);
+        if (state.grpMarks[id]) behalten++;
+    });
+    if (scope === "live") { renderLiveCategories(); renderLiveChannels(); }
+    else if (scope === "movies") renderMovies();
+    else renderSeries();
+    var hinweis = document.createElement("div");
+    hinweis.className = "grp-hint";
+    hinweis.textContent = behalten + " Gruppen sichtbar, " + (cats.length - behalten) + " ausgeblendet.";
+    document.getElementById("grp-list").prepend(hinweis);
+    var erste = document.querySelector("#grp-list .grp-row");
+    if (erste) fokusSetzen(erste);
+}
+
+function grpAllesMarkieren() {
+    Object.keys(state.grpMarks).forEach(function (k) { state.grpMarks[k] = true; });
+    document.querySelectorAll("#grp-list .grp-row").forEach(function (row) {
+        var id = row.getAttribute("data-gid");
+        state.grpMarks[id] = true;
+        row.className = "grp-row grp-nav";
+        var name = row.textContent.replace(/^[○●]\s*/, "");
+        row.textContent = "●  " + name;
+    });
+}
+
+function grpAlleEinblenden() {
+    var scope = state.gScope;
+    var prefs = makeCatPrefs(scope);
+    var cats = gSourceCats(scope);
+    cats.forEach(function (c) { prefs.setHidden(c.category_id, false); });
+    if (scope === "live") { renderLiveCategories(); renderLiveChannels(); }
+    else if (scope === "movies") renderMovies();
+    else renderSeries();
+    renderGroups();
+}
+
+function grpSortieren() {
+    var scope = state.gScope;
+    var prefs = makeCatPrefs(scope);
+    prefs.setSortMode("name");
+    if (scope === "live") { renderLiveCategories(); renderLiveChannels(); }
+    else if (scope === "movies") renderMovies();
+    else renderSeries();
+    renderGroups();
+    fokusSetzen(document.querySelector("#grp-list .grp-row"));
+}
+
+function grpSortierschritt() {
+    var scope = state.gScope;
+    var prefs = makeCatPrefs(scope);
+    var modi = ["num", "name", "manual"];
+    var i = modi.indexOf(prefs.sortMode());
+    prefs.setSortMode(modi[(i + 1) % modi.length]);
+    grpSortieren();
+}
+
+/* =====================================================================
+ *  TRAILER (v1.5.0)
+ *
+ *  youtube_trailer kommt aus get_vod_info. Der Versuch laeuft als
+ *  YouTube-iFrame; rendert das Geraet den nicht, bleibt der Hinweis
+ *  auf den QR-Fallback. Zurueck-Taste schliesst.
+ * ===================================================================== */
+
+function openTrailer(ytId, zurueckTab) {
+    state.trailerBack = zurueckTab || "movies";
+    /* Detailansicht merken: Zurueck fuehrt ins Detail zurueck, nicht zur Liste */
+    state.trailerFrom = (state.currentView === "view-series-detail") ? "view-series-detail" : "view-movie-detail";
+    show("view-trailer");
+    var frame = document.getElementById("trailer-frame");
+    var id = String(ytId).replace(/^.*[?&]v=/, "").replace(/^.*youtu\.be\//, "").replace(/[&].*$/, "");
+    frame.src = "https://www.youtube.com/embed/" + id + "?autoplay=1&rel=0";
+    document.getElementById("btn-trailer-back").onclick = function () {
+        frame.src = "";
+        show(state.trailerFrom);
+    };
+    document.getElementById("trailer-hint").textContent = "Bild bleibt dunkel? Zurück drücken — QR-Code zum Handy!";
+}
+
+/* =====================================================================
  *  Tabs
  * ===================================================================== */
 
 function activateTab(tab) {
     document.querySelectorAll(".tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === tab); });
-    var panes = ["live", "movies", "series", "epg", "downloads"];
+    var panes = ["live", "movies", "series", "watch", "epg", "downloads"];
     panes.forEach(function (p) {
         document.getElementById("pane-" + p).classList.toggle("hidden", p !== tab);
     });
+    pvStop();
     state.tab = tab;
     /* WICHTIG: state.vodMovies startet als [] - und ![] ist in JS false.
        Die Bedingung "!state.vodMovies" war deshalb nie erfuellt und
@@ -2729,6 +3329,15 @@ function activateTab(tab) {
             state.vodLoading = false;
             document.getElementById("movies-count").textContent = "Fehler: " + e.message;
         });
+    }
+    if (tab === "watch") {
+        /* Merken braucht unter Umstaenden die VOD-Daten (Poster-Feinsicht) */
+        if ((!state.vodMovies || state.vodMovies.length === 0) && !state.vodLoading) {
+            state.vodLoading = true;
+            loadVod().then(function () { state.vodLoading = false; if (state.tab === "watch") renderWatch(); })
+                .catch(function () { state.vodLoading = false; if (state.tab === "watch") renderWatch(); });
+        }
+        renderWatch();
     }
     if (tab === "series" && (!state.seriesShows || state.seriesShows.length === 0) && !state.seriesLoading) {
         state.seriesLoading = true;
@@ -2778,21 +3387,29 @@ function renderSettings() {
     document.getElementById("pin-input").value = "";
     document.getElementById("pin-confirm").value = "";
 
-    /* v1.2.0: Puffer, Wiedergabe-Zustand, Über */
-    var cs = cacheSeconds();
-    document.getElementById("cache-status").textContent = cs === 0 ? "Automatik" : cs + " s";
-    document.getElementById("wd-status").textContent =
-        "Stillstands-Wächter aktiv · " + state.wd.reconnects + "× neu verbunden";
-    var mgEl = document.getElementById("memguard-status");
-    if (mgEl) {
+    /* v1.5.0: Gruppen, Vorschau, IMDb + komprimierter Systemstatus */
+    var pvEl = document.getElementById("pv-status");
+    if (pvEl) {
+        pvEl.textContent = vorschauEin() ? "Ein" : "Aus";
+        pvEl.style.color = vorschauEin() ? "#6FCF9F" : "#8FA3C8";
+    }
+    var imEl = document.getElementById("imdb-status");
+    if (imEl) {
+        imEl.textContent = lsGet("imdbinfo", "ein") === "ein" ? "Ein" : "Aus";
+        imEl.style.color = lsGet("imdbinfo", "ein") === "ein" ? "#6FCF9F" : "#8FA3C8";
+    }
+    var grEl = document.getElementById("groups-status");
+    if (grEl) {
+        var liveHidden = lsGet(catK("live", "hidden"), []).length;
+        var movHidden = lsGet(catK("movies", "hidden"), []).length;
+        var serHidden = lsGet(catK("series", "hidden"), []).length;
+        grEl.textContent = liveHidden + movHidden + serHidden ? "Gruppen ausgeblendet: " + (liveHidden + movHidden + serHidden) : "keine ausgeblendet";
+    }
+    var wdEl = document.getElementById("sys-status");
+    if (wdEl) {
         var mg = state.memguard;
-        var teile = [];
-        teile.push(mg.timer ? "aktiv" : "aus");
-        if (mg.letztePct != null && mg.letztePct >= 0) teile.push("Heap " + mg.letztePct + " %");
-        if (mg.letzteNodes != null && mg.letzteNodes >= 0) teile.push(mg.letzteNodes + " Elemente");
-        teile.push(mg.bereinigungen + "× bereinigt");
-        mgEl.textContent = teile.join(" · ");
-        mgEl.style.color = (mg.bereinigungen > 0) ? "#FFC94D" : "#6FCF9F";
+        wdEl.textContent = "Wächter " + state.wd.reconnects + "× · Speicher " +
+            (mg.timer ? "aktiv" : "aus") + " · " + mg.bereinigungen + "× aufgeräumt";
     }
     var prof = state.activeProfile || "default";
     document.getElementById("about-status").textContent =
@@ -2822,17 +3439,9 @@ function renderSettings() {
     }
 }
 
-/* Puffer durchschalten: Automatik -> 3 -> 5 -> 8 -> 12 -> 20 -> 30 -> Automatik */
-var CACHE_STUFEN = ["auto", "3", "5", "8", "12", "20", "30"];
-
-function cacheWeiter() {
-    var cur = lsGet("cache_seconds", "3");
-    if (cur === 0) cur = "auto";
-    var i = CACHE_STUFEN.indexOf(String(cur));
-    i = (i + 1) % CACHE_STUFEN.length;
-    lsSet("cache_seconds", CACHE_STUFEN[i]);
-    renderSettings();
-}
+/* Puffer-Regler: seit 1.4.0 spielt die native UMS-Pipeline die Live-Streams.
+   Die Stufen sind nur noch fuer den hls.js-Fallback wirksam und sind
+   bewusst NICHT mehr als Einstellungs-Knopf sichtbar. */
 
 /* =====================================================================
  *  Speicherwaechter (v1.3.0)
@@ -3143,7 +3752,64 @@ function init() {
     }
     document.getElementById("btn-profile").onclick = function () { show("view-profiles"); renderProfiles(); };
 
-    document.getElementById("btn-cache").onclick = cacheWeiter;
+    /* v1.5.0: Gruppen, Vorschau, IMDb-Zusatzinfos */
+    document.getElementById("btn-groups").onclick = function () { openGroups("live"); };
+    document.getElementById("btn-groups-back").onclick = function () { renderSettings(); };
+    document.getElementById("btn-pv").onclick = function () {
+        lsSet("vorschau", vorschauEin() ? "aus" : "ein");
+        if (!vorschauEin()) pvStop();
+        renderSettings();
+    };
+    document.getElementById("btn-imdb").onclick = function () {
+        lsSet("imdbinfo", lsGet("imdbinfo", "ein") === "ein" ? "aus" : "ein");
+        renderSettings();
+    };
+    document.getElementById("btn-grp-all").onclick = grpAllesMarkieren;
+    document.getElementById("btn-grp-apply").onclick = grpAnwenden;
+    document.getElementById("btn-grp-show").onclick = grpAlleEinblenden;
+    document.getElementById("btn-grp-sort").onclick = grpSortierschritt;
+    document.querySelectorAll("#grp-scopes .grp-nav").forEach(function (b) {
+        b.onclick = function () { openGroups(b.getAttribute("data-scope")); };
+    });
+    pvFehlerInit();
+
+    /* Gruppen-Navigation: Hoch/Runter ueber Zeilen+Tasten (globaler
+       Handler kennt bislang nur die Home-Ansichten). */
+    window.navGrp = function (delta) {
+        var liste = document.querySelectorAll("#view-groups .grp-nav");
+        var vis = Array.prototype.slice.call(liste).filter(function (e) { return e.offsetParent !== null; });
+        if (!vis.length) return false;
+        var i = vis.indexOf(document.activeElement);
+        if (i < 0) return fokusSetzen(vis[0]);
+        var n = Math.min(vis.length - 1, Math.max(0, i + delta));
+        fokusSetzen(vis[n]);
+        return true;
+    };
+
+
+    /* Farbtasten + Menü-Taste in der GRUPPEN-Verwaltung (view-groups):
+       GELB alles markieren, BLAU nur markierte zeigen, GRÜN/ROT
+       Gruppe hoch/runter (Modus "manual"), MENÜ = Einzeln-Menü
+       (Umbenennen, Sortier-Zyklus, Einzeln ausblenden). */
+    document.addEventListener("keydown", function (e) {
+        if (state.currentView !== "view-groups") return;
+        var row = document.activeElement && document.activeElement.classList &&
+            document.activeElement.classList.contains("grp-row") ? document.activeElement : null;
+        var scope = state.gScope;
+        var prefs = makeCatPrefs(scope);
+        var cats = gSourceCats(scope);
+        if (e.keyCode === 405) { e.preventDefault(); grpAllesMarkieren(); return; }
+        if (e.keyCode === 406) { e.preventDefault(); grpAnwenden(); return; }
+        if (row) {
+            var gid = row.getAttribute("data-gid");
+            var catObj = null;
+            for (var z = 0; z < cats.length; z++) if (String(cats[z].category_id) === String(gid)) { catObj = cats[z]; break; }
+            if (!catObj) return;
+            if (e.keyCode === 409) { e.preventDefault(); prefs.moveUp(catObj.category_id, cats); renderGroups(); }
+            else if (e.keyCode === 403) { e.preventDefault(); prefs.moveDown(catObj.category_id, cats); renderGroups(); }
+            else if (e.keyCode === 10248 || e.keyCode === 275 || e.key === "ContextMenu") { e.preventDefault(); openCatMenu(scope, catObj, 0); }
+        }
+    }, true);
 
     document.getElementById("btn-pin-set").onclick = function () {
         document.getElementById("pin-form").classList.toggle("hidden");
@@ -3189,6 +3855,12 @@ function init() {
                 return;
             }
             if (state.currentView === "view-player") { stopPlayback(); show("view-home"); e.preventDefault(); }
+            else if (state.currentView === "view-trailer") {
+                document.getElementById("trailer-frame").src = "";
+                show(state.trailerFrom || "view-home");
+                e.preventDefault();
+            }
+            else if (state.currentView === "view-groups") { renderSettings(); e.preventDefault(); }
             else if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail" || state.currentView === "view-settings") {
                 show("view-home"); e.preventDefault();
             }
@@ -3312,6 +3984,7 @@ function init() {
     }
 
     window.navVertikal = function (delta) {
+        if (state.currentView === "view-groups") return navGrp(delta);
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, true);
         if (gruppe0 === "chans") return navChans(delta);
@@ -3408,6 +4081,10 @@ function init() {
     window.navHorizontal = function (delta) {
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, false);
+        /* Gruppen-Verwaltung / Einstellungen: links/rechts keine
+           Spaltenwechsel - die Pfeiltasten dort sind untaetig, alles
+           laeuft hoch/runter. */
+        if (state.currentView === "view-groups" || state.currentView === "view-settings") return true;
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, false);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
@@ -3493,6 +4170,7 @@ function init() {
 
 function stopPlayback() {
     stopWatchdog();
+    osdZu();
     state.queue = [];
     state.queueIdx = -1;
     state.creditsShown = false;

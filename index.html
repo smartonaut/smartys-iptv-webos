@@ -82,6 +82,7 @@
                     <button class="tab active" data-tab="live">Live-TV</button>
                     <button class="tab" data-tab="movies">Filme</button>
                     <button class="tab" data-tab="series">Serien</button>
+                    <button class="tab" data-tab="watch">Merken</button>
                     <button class="tab" data-tab="epg">Programm</button>
                     <button class="tab" data-tab="downloads">Downloads</button>
                 </div>
@@ -103,6 +104,12 @@
                 <div class="columns">
                     <div id="live-categories" class="sidebar"></div>
                     <div id="live-channels" class="channellist"></div>
+                    <div id="preview-box" class="preview-box hidden">
+                        <video id="pv-video" class="pv-video" muted playsinline></video>
+                        <div id="pv-title" class="pv-title"></div>
+                        <div id="pv-epg" class="pv-epg"></div>
+                        <div class="pv-bar"><div id="pv-progress" class="pv-progress"></div></div>
+                    </div>
                 </div>
             </div>
 
@@ -134,6 +141,17 @@
                     <div id="series-categories" class="sidebar"></div>
                     <div id="series-grid" class="grid"></div>
                 </div>
+            </div>
+
+            <!-- Merken (Watchlist) -->
+            <div id="pane-watch" class="pane hidden">
+                <div class="pane-head">
+                    <div>
+                        <div class="pane-title">Merken</div>
+                        <div id="watch-count" class="pane-sub"></div>
+                    </div>
+                </div>
+                <div id="watch-grid" class="grid"></div>
             </div>
 
             <!-- EPG-Grid -->
@@ -175,6 +193,21 @@
                 </div>
                 <div class="settings-body">
                     <div class="settings-row">
+                        <span>Gruppen verwalten</span>
+                        <span class="settings-val" id="groups-status"></span>
+                        <button id="btn-groups" class="btn-ghost">Öffnen</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Vorschaufenster</span>
+                        <span id="pv-status" class="settings-val"></span>
+                        <button id="btn-pv" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>IMDb-/Trailer-Zusatzinfos</span>
+                        <span id="imdb-status" class="settings-val"></span>
+                        <button id="btn-imdb" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
                         <span>Kindersicherung</span>
                         <span id="pin-status" class="settings-val"></span>
                         <button id="btn-pin-set" class="btn-ghost">PIN festlegen</button>
@@ -197,17 +230,8 @@
                         <button id="btn-line" class="btn-ghost">Andere Leitung</button>
                     </div>
                     <div class="settings-row">
-                        <span>Puffer</span>
-                        <span id="cache-status" class="settings-val"></span>
-                        <button id="btn-cache" class="btn-ghost">Puffer ändern</button>
-                    </div>
-                    <div class="settings-row">
-                        <span>Wiedergabe</span>
-                        <span id="wd-status" class="settings-val"></span>
-                    </div>
-                    <div class="settings-row">
-                        <span>Speicher-Wächter</span>
-                        <span id="memguard-status" class="settings-val"></span>
+                        <span>System</span>
+                        <span id="sys-status" class="settings-val"></span>
                     </div>
                     <div class="settings-row">
                         <span>Über</span>
@@ -225,14 +249,56 @@
         <section id="view-player" class="view hidden">
             <video id="video" class="video" controls autoplay playsinline></video>
             <div id="osd" class="osd hidden">
-                <div id="osd-title" class="osd-title"></div>
+                <div class="osd-head">
+                    <div id="osd-title" class="osd-title"></div>
+                    <div id="osd-clock" class="osd-clock"></div>
+                </div>
                 <div id="osd-epg" class="osd-epg"></div>
                 <div id="osd-bar" class="osd-bar"><div id="osd-progress" class="osd-progress"></div></div>
+                <div class="osd-foot">
+                    <span id="osd-elapsed"></span>
+                    <span id="osd-remain"></span>
+                </div>
             </div>
             <div id="credits-hint" class="credits-hint hidden"></div>
             <div class="player-topbar">
                 <button id="btn-back" class="btn-ghost">← Zurück</button>
                 <div id="player-title" class="player-title"></div>
+            </div>
+        </section>
+
+        <!-- ===================== GRUPPEN-VERWALTUNG (v1.5.0) ===================== -->
+        <section id="view-groups" class="view hidden">
+            <div class="settings">
+                <div class="settings-head">
+                    <div class="pane-title">Gruppen verwalten</div>
+                    <button id="btn-groups-back" class="btn-ghost">← Zurück</button>
+                </div>
+                <div class="grp-scopes" id="grp-scopes">
+                    <button class="btn-ghost grp-nav" data-scope="live">Live-TV</button>
+                    <button class="btn-ghost grp-nav" data-scope="movies">Filme</button>
+                    <button class="btn-ghost grp-nav" data-scope="series">Serien</button>
+                    <span class="grp-hint">GELB alles markieren · BLAU nur markierte zeigen</span>
+                </div>
+                <div class="grp-actions" id="grp-actions">
+                    <button id="btn-grp-all" class="btn-ghost grp-nav">✓ Alle markieren</button>
+                    <button id="btn-grp-apply" class="btn-primary small grp-nav">Nur markierte zeigen</button>
+                    <button id="btn-grp-show" class="btn-ghost grp-nav">Alle einblenden</button>
+                    <button id="btn-grp-sort" class="btn-ghost grp-nav">A–Z sortieren</button>
+                </div>
+                <div class="settings-body" id="grp-list"></div>
+            </div>
+        </section>
+
+        <!-- ===================== TRAILER (v1.5.0) ===================== -->
+        <section id="view-trailer" class="view hidden">
+            <div class="trailer-wrap">
+                <div class="trailer-top">
+                    <button id="btn-trailer-back" class="btn-ghost">← Zurück</button>
+                    <div class="trailer-hint">Bild bleibt dunkel? Zurück drücken — QR-Code zum Handy!</div>
+                </div>
+                <iframe id="trailer-frame" class="trailer-frame" allowfullscreen></iframe>
+                <div id="trailer-qr" class="trailer-qr hidden"></div>
             </div>
         </section>
 

@@ -1,5 +1,47 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.0 — 22.11.2026
+
+Bedienung & Options-Ausbau nach der stabilen nativen Basis (1.4.0).
+
+- **Gruppen-Verwaltung, zwei Wege (wie Desktop)**:
+  - **Langdruck/Menü-Taste auf einer Gruppe** öffnet ihr Untermenü:
+    „🎯 Mehrere markieren" startet mit **ALLES markiert** — abwählen,
+    was nicht gezeigt werden soll, dann „🚫 Nur markierte behalten"
+    blendet ALLEN Rest aus („Alle markieren"/„Aufheben"/Blöcke
+    hoch/runter sind weiter da). Genau der geforderte Ablauf.
+  - **Sortierung wie Desktop**: Zyklus **Nummer → A–Z → Manuell**
+    (im Gruppen-Menü und in Einstellungen → Gruppen verwalten);
+    manuelles ▲▼ verschiebt und schaltet automatisch auf „Manuell";
+    die Such- und Kanalfilter der drei Modi folgen in Listen,
+    Zählern und Suche.
+  - Die **Suche durchsucht nur noch aktive Gruppen** (war schon so —
+    jetzt verifiziert auf Live, Filme und Serien).
+  - Einstellungen → Gruppen verwalten bleibt als Vollbild-Verwaltung;
+    dort: GRÜN/ROT = Gruppe hoch/runter, GELB = alles markieren,
+    BLAU = nur markierte zeigen, MENÜ auf Zeile = Einzeln-Menü.
+- **Vorschaufenster**: Fokus ruht 900 ms auf einem Sender in der
+  Live-Liste → kleines stilles Live-Bild rechts, darunter EPG
+  (aktuelle Sendung + Restlaufzeit + Fortschrittsbalken). Fokus
+  weiterwandern = neue Vorschau; Kategorien/Suche = Vorschau zu.
+  Notbremse: 3 Fehlversuche → aus für die Sitzung, in den
+  Einstellungen zuschaltbar/abschaltbar.
+- **Merken (Watchlist)**: neuer Tab „Merken" mit Poster-Kacheln für
+  Filme und Serien; im Detail „☆ Merken" / „✓ Gemerkt". Pro Profil
+  gespeichert. Merk-Kachel öffnet das zugehörige Detail.
+- **IMDb-/Trailer-Zusatzinfos**: Film-Detail lädt get_vod_info und
+  zeigt IMDb-Wertung, Genre, Startdatum, Laufzeit als Chips plus
+  „▶ Trailer" (YouTube-Einbettung; wenn ein Gerät den nicht rendert,
+  bleibt es gefahrlos dunkel — zurück genügt). Serien-Detail zeigt die
+  5-Sterne-Wertung. In den Einstellungen abschaltbar.
+- **Transparentes OSD**: Titel + Uhrzeit + EPG-Zeile + Laufzeitbalken
+  mit Endezeit und Restlaufzeit (Live: Fortschritt im laufenden
+  Programm; VOD: Position von Gesamtzeit). Läuft im Sekundentakt mit.
+- **Einstellungen aufgeräumt**: Puffer-Knopf entfernt (seit der native
+  Wiedergabe steuert webOS den Puffer; die Stufen wirken nur noch im
+  hls.js-Fallback), Bildschirmschoner/Wiedergabe/Speicher-Wächter zu
+  einer kompakten „System"-Zeile zusammengefasst.
+
 ## 1.4.0 — 22.11.2026
 
 Wiedergabe-Pipeline umgestellt nach der SIPTV-Analyse: **nativ zuerst**.
