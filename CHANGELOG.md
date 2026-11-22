@@ -1,4 +1,25 @@
-# Changelog — Smartys Player (LG webOS)
+## 1.5.11 — 22.11.2026
+
+CSS im TV-Chromium nachgerüstet.
+
+- `inset` kennt der TV-Chromium ebenfalls nicht: das Hero-Bild
+  schrumpfte auf 1280 px und das Verwaltungs-Overlay deckte nicht den
+  ganzen Bildschirm (das war die „Liste mitten in den Gruppen" von
+  1.5.1). Alle drei Stellen stehen jetzt auf top/left/right/bottom.
+
+## 1.5.10 — 22.11.2026
+
+Film-Detail als Hero (Wunsch: „Menu mit den Infos auf das große Bild").
+
+- Das Detail zeigt das Bild jetzt groß im Hintergrund (16:9-Backdrop
+  von TMDB, sonst das Cover), mit Verlauf nach unten und die Infos
+  und Knöpfe darunter: Zurück, Abspielen, IMDb, Merken, Favorit.
+- Steuerkreuz: Fokus startet auf „Abspielen", UP/DOWN durch die
+  Knöpfe, BACK raus. Serien-Episoden und Knöpfe sind jetzt ebenfalls
+  fokussierbar (fehlte tabindex — der Steuerkreuz-Fix aus der
+  Einstellungs-Runde).
+- Serien-Poster auf feste 300×450 Höhen (der Prozentbezug auf den
+  breiten Container machte 2700 px hohe Poster).
 
 ## 1.5.8 — 22.11.2026
 

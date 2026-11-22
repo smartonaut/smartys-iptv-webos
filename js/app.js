@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.9";
+var APP_VERSION = "1.5.11";
 
 var state = {
     playerId: null,
@@ -2171,9 +2171,8 @@ function openMovieDetail(m) {
     var resumePos = state.resume["movie:" + m.stream_id] || 0;
     var canResume = resumePos > 30000;
     var rating = m.rating_5based && +m.rating_5based > 0 ? '★ ' + (+m.rating_5based).toFixed(1) : "";
-    el.innerHTML = '<div class="detail-layout">' +
-        '<div class="detail-poster">' + (m.stream_icon ? '<img src="' + esc(m.stream_icon) + '" loading="lazy" decoding="async">' : '<div class="poster-empty">🎬</div>') + '</div>' +
-        '<div class="detail-info">' +
+    el.innerHTML = '<div class="detail-hero"><img id="hero-img" src="' + esc(m.stream_icon || "") + '" loading="lazy" decoding="async" alt=""><div class="hero-shade"></div></div>' +
+        '<div class="detail-panel">' +
         '<button class="btn-ghost" id="md-back">← Zurück</button>' +
         '<div class="detail-title">' + esc(m.name) + '</div>' +
         '<div class="detail-meta">' + [movieYear(m), m.categoryName, rating].filter(Boolean).join(' · ') + '</div>' +
@@ -2188,7 +2187,18 @@ function openMovieDetail(m) {
         '</div>' +
         '<div class="chips" id="md-info"></div>' +
         '<div class="detail-desc" id="md-desc">Beschreibung wird geladen…</div>' +
-        '</div></div>';
+        '</div>';
+
+    /* 1.5.9: Hero-Ansicht — das Bild liegt voll im Hintergrund, die
+       Infos/Knoepfe liegen ueber einem Verlauf darunter (Wunsch des
+       Nutzers: "riesen bild ... gefaellt mir ... menu mit den infos
+       [drauf] legen"). Initialfokus: Abspielen. */
+    setTimeout(function () {
+        if (state.currentView === "view-movie-detail") {
+            var pf = document.getElementById("md-play");
+            if (pf) fokusSetzen(pf);
+        }
+    }, 130);
 
     document.getElementById("md-back").onclick = function () { show("view-home"); activateTab("movies"); };
     document.getElementById("md-play").onclick = function () {
@@ -2263,6 +2273,10 @@ function openMovieDetail(m) {
 
     if (m.tmdb) {
         fetchTmdbMovie(m.tmdb).then(function (meta) {
+            if (meta && meta.backdrop_path) {
+                var hero = document.getElementById("hero-img");
+                if (hero && meta.backdrop_path) hero.src = "https://image.tmdb.org/t/p/w1280" + meta.backdrop_path;
+            }
             if (meta && meta.overview) {
                 var chips = [];
                 var infoBox = document.getElementById("md-info");
@@ -2333,6 +2347,7 @@ function openSeriesDetail(serie) {
             eps.forEach(function (ep) {
                 var row = document.createElement("div");
                 row.className = "episode";
+                row.tabIndex = 0;   /* 1.5.9: Episoden per Steuerkreuz */
                 row.innerHTML = '<span class="ep-num">S' + sk + 'E' + (ep.episode_num || "-") + '</span>' +
                     '<span class="ep-title">' + esc(ep.title || ("Episode " + ep.episode_num)) + '</span><span class="ep-play">▶</span>';
                 row.onclick = function () {
@@ -3992,8 +4007,8 @@ function init() {
        Nutzer stand im Nichts ("keine fokus ... kann es nicht bedienen").
        navSettings läuft die aktionierbaren Elemente (Öffnen/Umschalten/
        Zurück/PIN) linear im DOM ab, scrollIntoView inklusive. */
-    window.navSettings = function (delta) {
-        var rows = fokusListe("settings");
+    window.navSettings = function (delta, gruppe) {
+        var rows = fokusListe(gruppe || "settings");
         if (!rows.length) return true;
         var i = rows.indexOf(document.activeElement);
         if (i < 0) { fokusSetzen(rows[0]); return true; }
@@ -4200,6 +4215,7 @@ function init() {
             grid: ".pane:not(.hidden) .grid-item",
             epg: "#epg-grid .epg-prog",
             settings: "#view-settings .btn-ghost:not(.hidden), #view-settings .btn-primary:not(.hidden), #view-settings .settings-btn:not(.hidden)",
+            detail: "#view-movie-detail:not(.hidden) .detail-panel button, #view-series-detail:not(.hidden) .detail-layout button, #view-series-detail:not(.hidden) .episode",
             menu: ".menu-overlay:not(.hidden) .menu-btn, .menu-overlay:not(.hidden) .menu-item, .menu-overlay:not(.hidden) input"
         }[gruppe];
         if (!sel) return [];
@@ -4227,6 +4243,8 @@ function init() {
     window.navVertikal = function (delta) {
         if (state.currentView === "view-groups") return navGrp(delta);
         if (state.currentView === "view-settings") return navSettings(delta);   /* 1.5.6 */
+        if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail")
+            return navSettings(delta, "detail");   /* 1.5.9: Hero/Detal-Ansicht */
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, true);
         /* 1.5.1: TAB-Zeile / TOPLAST ist horizontal organisiert.
@@ -4386,6 +4404,7 @@ function init() {
            laeuft hoch/runter. */
         if (state.currentView === "view-groups") return navGrpX(delta);   /* 1.5.4 */
         if (state.currentView === "view-settings") return true;
+        if (state.currentView === "view-movie-detail" || state.currentView === "view-series-detail") return true;   /* 1.5.9 */
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, false);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
