@@ -1,5 +1,22 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.5 — 22.11.2026
+
+Sortier-Screen steuerkreuzfest + Topbar-Ring.
+
+- **Hoch/Runter geht jetzt durch die Gruppen-Zeilen** (vorher sprang
+  der Fokus nicht aus der obersten Zeile — genau dein „kam nicht
+  durch die Gruppen"). UP aus der obersten Zeile führt in die
+  Knopf-Zeile, DOWN wieder zurück in die Liste.
+- **OK auf einer Gruppe markiert/abwählt sofort** (mit Speichern —
+  nichts geht beim Zurückgehen verloren), Statuszeile meldet
+  „Ein/Aus: <Gruppe> · gespeichert".
+- Der RIGHT-Lauf in der Topbar-Zeile geht komplett: **Tabs … →
+  Downloads | Einstellungen | Suchfeld**; im Suchfeld geleitet
+  **RIGHT** zur Einstellungs-Zeile zurück, **LEFT** in die Tab-Zeile.
+- Tests N1–N17 grün, Geräte-Check (Fokus solid, Zeilen-Schritte,
+  Workflow) bestätigt.
+
 ## 1.5.4 — 22.11.2026
 
 Fokus sichtbar, Navigation in Zonen, beide Workflows komplett.

@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.4";
+var APP_VERSION = "1.5.5";
 
 var state = {
     playerId: null,
@@ -3207,10 +3207,10 @@ function renderGroups() {
 
     cats.forEach(function (c) {
         var id = String(c.category_id);
-        /* 1.5.3: OK auf der Zeile oeffnet DIREKT das Einzeln-Menue
-           (Original-Fernbedienung sendet KEIN key-repeat beim Halten -
-           die Halten-Erkennung funktionierte dort nie). Markieren /
-           Workflow laeuft ueber Mehrfach-Markieren bzw. GELB/BLAU. */
+        /* 1.5.5: OK/Klick auf der Zeile MARKIERT direkt (und speichert
+           sofort) - das erwartete Verhalten. Verwalten (Umbenennen,
+           Reihenfolge-Menue) bleibt im Mehrfach-Workflow bzw. ueber
+           Zeiger-Halten/Halten-FBs in den Seiten-Kategorien. */
         var row = document.createElement("div");
         row.className = "grp-row grp-nav" + (state.grpMarks[id] ? "" : " grp-off");
         row.tabIndex = 0;
@@ -3219,7 +3219,14 @@ function renderGroups() {
         row.setAttribute("data-row-name", c.category_name || "Unbenannt");
         var name = c.category_name || "Unbenannt";
         row.textContent = (state.grpMarks[id] ? "●  " : "○  ") + name + anzahl;
-        row.onclick = function () { openCatMenu(scope, c, 0); };
+        row.onclick = function () {
+            var jetzt = !state.grpMarks[id];
+            state.grpMarks[id] = jetzt;
+            prefs.setHidden(id, !jetzt);   /* sofort speichern - "Zurueck" verliert nichts */
+            row.className = "grp-row grp-nav" + (jetzt ? "" : " grp-off");
+            row.textContent = (jetzt ? "●  " : "○  ") + name + anzahl;
+            grpStatusZeile((jetzt ? "Ein" : "Aus") + ": " + name + " · gespeichert");
+        };
         list.appendChild(row);
     });
 }
@@ -3831,11 +3838,11 @@ function init() {
         ];
     };
     /* VERTIKAL in der Gruppen-Verwaltung: Zonen-Reihenfolge
-       Bereiche -> Werkzeug-Knoepfe -> Gruppenliste. UP aus der
-       Listen-Oberzeile rueber in die Knopf-Reihe, DOWN umgekehrt.
-       Vorher lief DOWN linear durch ALLE .grp-nav-Elemente (10
-       Knopfe + Zeilen), und links/rechts tat ueberhaupt nichts -
-       genau die Kritik von Smarty ("Hoch/Runter und seitlich schlecht"). */
+       Bereiche -> Werkzeug-Knoepfe -> Gruppenliste. IN der Liste bewegt
+       Hoch/Runter die Zeilen (das war kaputt: vor 1.5.5 hielt der Fokus
+       bei jeder Aktion in der obersten Zeile - genau "kann mit dem
+       Steuerkreuz nicht durch die Gruppen gehen"). UP aus der
+       Listen-Oberzeile ueber in die Knopf-Reihe. */
     window.navGrp = function (delta) {
         var z = grpZonen();
         var ae = document.activeElement;
@@ -3845,9 +3852,14 @@ function init() {
             if (i >= 0) { zi = q; pos = i; break; }
         }
         if (zi < 0) { fokusSetzen(z[2][0] || z[1][0] || z[0][0]); return true; }
+        if (zi === 2) {
+            var nRow = pos + delta;
+            if (nRow >= 0 && nRow < z[2].length) { fokusSetzen(z[2][nRow]); return true; }
+            if (nRow < 0 && z[1].length) { fokusSetzen(z[1][0]); return true; }
+            return true;
+        }
         var ziel = z[zi + delta];
         if (ziel && ziel.length) { fokusSetzen(ziel[pos < ziel.length ? pos : 0]); return true; }
-        if (zi === 2 && delta < 0 && z[1].length) { fokusSetzen(z[1][0]); return true; }
         if (zi === 1 && delta > 0 && z[2].length) { fokusSetzen(z[2][0]); return true; }
         return true;
     };
@@ -3890,14 +3902,13 @@ function init() {
             if (e.keyCode === 409) { e.preventDefault(); prefs.moveUp(catObj.category_id, cats); renderGroups(); }
             else if (e.keyCode === 403) { e.preventDefault(); prefs.moveDown(catObj.category_id, cats); renderGroups(); }
             else if (e.keyCode === 13 || e.keyCode === 29443) {
-                /* 1.5.3: OK oeffnet SOFORT das Einzeln-Menue. Die
-                   Original-Fernbedienung sendet kein key-repeat - die alte
-                   Halten-Erkennung (e.repeat + 280ms-Timer) funktionierte
-                   dort nie. Die MENUE-Taste selbst ist vom LG-Systemmenu
-                   belegt und wird NICHT bedient. */
+                /* 1.5.5: OK = markieren/abwaehlen (sofort gespeichert).
+                   Kein Halten, kein Menue - die Original-Fernbedienung
+                   sendet kein key-repeat, und Verwalten laeuft ueber
+                   Mehrfach-Markieren bzw. den Workflow-Knoepfen. */
                 if (e.repeat) { e.preventDefault(); return; }
                 e.preventDefault();
-                openCatMenu(scope, catObj, 0);
+                row.click();
             }
         }
     }, true);
@@ -4201,6 +4212,15 @@ function init() {
             var ti = tl.indexOf(document.activeElement);
             var tz = ti + delta;
             if (tz >= 0 && tz < tl.length) { fokusSetzen(tl[tz]); return true; }
+            if (delta > 0) {
+                /* 1.5.5: rechts hinter dem letzten Tab liegen die
+                   Einstellungs-Buttons (Downloads | Einstellungen) - der
+                   RIGHT-Lauf durchquert jetzt die komplette Topbar-Zeile
+                   statt in die Gruppen-Spalte abzuknicken. */
+                var tb = fokusListe("topbar");
+                if (tb.length) { fokusSetzen(tb[0]); return true; }
+                return true;
+            }
             var sp = (state.tab === "live" || !state.tab) ? "cats" : "vcats";
             var l0 = fokusListe(sp);
             if (l0.length) { fokusSetzen(l0[0]); return true; }
@@ -4211,8 +4231,14 @@ function init() {
             var bi = bl.indexOf(document.activeElement);
             var bz = bi + delta;
             if (bz >= 0 && bz < bl.length) { fokusSetzen(bl[bz]); return true; }
+            if (delta > 0) {
+                /* rechts am Rand: in das Suchfeld des aktiven Pane */
+                var sf = document.querySelector(".pane:not(.hidden) .search");
+                if (sf) { fokusSetzen(sf); return true; }
+                return true;
+            }
             var t0 = fokusListe("tabs");
-            if (t0.length) { fokusSetzen(t0[0]); return true; }
+            if (t0.length) { fokusSetzen(t0[t0.length - 1]); return true; }
             return true;
         }
         /* Gruppen-Verwaltung / Einstellungen: links/rechts keine
@@ -4267,6 +4293,17 @@ function init() {
         if (state.currentView === "view-unlock") return;   /* PIN-Gate: Feld behaelt Fokus */
         var k = e.keyCode;
         var isBack = k === 10009 || k === 461 || k === 27;
+        /* 1.5.5: RECHTS im Suchfeld geht raus zu den Einstellungs-
+           Buttons (Downloads | Einstellungen | Suchfeld Ring der
+           Topbar-Zeile). Links/Up/Back/Down wie bisher raus. */
+        if (k === 39 && ae.classList && ae.classList.contains("search")) {
+            e.preventDefault();
+            e.stopPropagation();
+            ae.blur();
+            var tbr = fokusListe("topbar");
+            if (tbr.length) fokusSetzen(tbr[0]);
+            return;
+        }
         if (k !== 38 && k !== 40 && !isBack) return;
         e.preventDefault();
         e.stopPropagation();
