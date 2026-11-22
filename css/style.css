@@ -225,14 +225,19 @@ html, body {
 .grid-item:focus { outline: 3px solid #FFC94D; }
 .poster {
     position: relative;
-    aspect-ratio: 2/3;
+    /* 1.5.8: webOS-Chromium (<88) kennt aspect-ratio NICHT - das Poster
+       kollabierte auf Hoehe 0, Fokus und Tap landeten im Nichts
+       ("auf einem cover ... keine focus oder kann nicht bedienen").
+       padding-Trick statt aspect-ratio, Kinder absolut. */
+    height: 0;
+    padding-bottom: 150%;
     background: #141A2A;
     border-radius: 8px;
     overflow: hidden;
 }
-.poster img { width: 100%; height: 100%; object-fit: cover; }
+.poster img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
 .poster-empty {
-    width: 100%; height: 100%;
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
     display: flex; align-items: center; justify-content: center;
     font-size: 44px; color: #55648A;
 }
@@ -255,10 +260,12 @@ html, body {
     max-width: none; margin: 0 auto;
 }
 .detail-poster {
-    width: 300px; aspect-ratio: 2/3;
+    width: 300px;
+    /* 1.5.8: aspect-ratio-Ersatz wie bei .poster — Höhen-Trick + absolutes img */
+    height: 0; padding-bottom: 150%;
     background: #141A2A; border-radius: 16px; overflow: hidden; flex-shrink: 0;
 }
-.detail-poster img { width: 100%; height: 100%; object-fit: cover; }
+.detail-poster img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
 .detail-info { flex: 1; display: flex; flex-direction: column; }
 .detail-title { color: #E8EEFC; font-size: 30px; font-weight: bold; margin: 12px 0; }
 .detail-meta { color: #6B7A99; font-size: 16px; margin-bottom: 18px; }

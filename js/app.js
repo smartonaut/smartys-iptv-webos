@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.7";
+var APP_VERSION = "1.5.9";
 
 var state = {
     playerId: null,
@@ -1967,6 +1967,12 @@ function gridGeom(el, n) {
 
 function renderGridVirt(el, daten, scope, itemHtml) {
     /* itemHtml(item, globalIndex) -> string; globalIndex = Position in daten */
+    /* VERSTECKTES Grid hat kein Layout - Zellen wuerden 0 px
+       hoch gerendert und blieben nach dem Rueckweg fuer immer kollabiert
+       (kein Fokus, kein Tap - "auf einem cover keine focus"). Solche
+       Runs werden uebersprungen; homeViewsFrisch/activateTab re-rendern
+       sobald sichtbar. */
+    if (el.clientWidth === 0) { state.gridMeta[scope] = null; el.onscroll = null; return; }
     var meta = gridGeom(el, daten.length);
     state.gridMeta[scope] = meta;
     var vorherScroll = el.scrollTop;
@@ -3709,11 +3715,16 @@ function homeViewsFrisch() {
     var tab = state.tab;
     if (tab === "movies" && state.vodMovies && state.vodMovies.length) {
         var mg = document.getElementById("movies-grid");
-        if (!mg || mg.childElementCount === 0) renderMovies();
+        /* Zellen-Render waehrend Verdeckung, wenn Zellen existieren aber 0 px hoch
+           sind (Render-Lauf waehrend die Seite versteckt war). */
+        var mZ = mg ? mg.querySelector(".grid-item") : null;
+        if (!mg || !mg.childElementCount || !mZ || mZ.offsetHeight === 0) renderMovies();
     }
     if (tab === "series" && state.seriesShows && state.seriesShows.length) {
         var sg = document.getElementById("series-grid");
-        if (!sg || sg.childElementCount === 0) renderSeries();
+        /* wie movies - 0-px-Zellen erkennen und neu rendern. */
+        var sZ = sg ? sg.querySelector(".grid-item") : null;
+        if (!sg || !sg.childElementCount || !sZ || sZ.offsetHeight === 0) renderSeries();
     }
     if (tab === "epg") {
         var eg = document.getElementById("epg-grid");

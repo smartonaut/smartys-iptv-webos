@@ -1,5 +1,27 @@
 # Changelog — Smartys Player (LG webOS)
 
+## 1.5.8 — 22.11.2026
+
+Cover-Raster bedienbar (webOS-Chromium-Kompatibilität).
+
+- Der webOS-Chromium kennt CSS `aspect-ratio` nicht — das Poster
+  kollabierte auf Höhe 0: Fokus und Klick landeten im Nichts,
+  „kein Fokus, nicht bedienbar" auf jedem Cover.
+- `.poster`/.detail-poster jetzt mit Höhen-Trick (padding-bottom
+  150 %) und absoluten Bildern. Am Geräte gemessen: Zellenhöhe > 0,
+  Fokus setzt, OK öffnet den Film.
+
+## 1.5.9 — 22.11.2026
+
+Der versteckte Re-Render-Lauf.
+
+- Beim Öffnen eines Covers lief ein Raster-Render, während die
+  Filmen-Seite verdeckt war — Null-Höhen-Zellen, die nach dem Rückweg
+  blieben (Fokus/Klick tot).
+- Versteckte Grids rendern jetzt nicht; beim Zurückkehren wird ein
+  kollabiertes Raster (0-px-Zellen) erkannt und frisch aufgebaut.
+  Am Gerät: Cover → OK (Detail) → BACK → Zellen 299 px, Fokus setzt.
+
 ## 1.5.7 — 22.11.2026
 
 Filme und Serien steuerkreuzfest.
