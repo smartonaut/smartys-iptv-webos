@@ -1,3 +1,43 @@
+## 1.5.52 — 25.11.2026
+
+Kamera-Wand und Quellen-Schalter.
+
+- **Kamera-Wand** (Vollbild): Firmen-Kameras als Raster, Spalten 1–4 wählbar,
+  Name klein auf dem Bild (kein Balken über dem Video), Zurück-Knopf und
+  Zähler in der Kopfzeile außerhalb des Rasters.
+- **Quellen-Schalter** in den Einstellungen („Kameras & freie Streams“):
+  Firmen-Kameras (VLAN), freie Kameras, freie Streams — je AN/AUS. Die Flags
+  greifen an der DATENQUELLE: abgeschaltet wird nicht geladen und nicht gescannt,
+  Demo-Knopf und Wand-Knopf verschwinden mit.
+- **Firmen-Kameras über das CamViewer-Backend**: `GET /api/cameras` liefert ein
+  Objekt `{cameras:[…]}` (kein Array), der Producer wird je Kamera mit
+  `/api/stream/<id>` angestoßen (idempotent), gespielt wird
+  `<base>/hls/<id>/index.m3u8` — ffmpeg-HLS, weil der TV-Chromium go2rtc-HLS
+  nicht parst (Anlauf ohne Keyframe, fatales fragmentParsingError).
+
+## 1.5.51 — 24.11.2026
+
+Kamera-Wiedergabe: `recoverMediaError` bei `MEDIA_ERROR`, um die Instanz zu
+retten, bevor der Screen neu aufgebaut wird. Gegen go2rtc half das nicht
+(Backend-Pfad kam in 1.5.52); der Handler bleibt als Schutz bei echten
+Segmentfehlern.
+
+## 1.5.50 — 24.11.2026
+
+Jellyfin meldet sich beim Start selbst wieder an (`jfauto_user`/`jfauto_pw` mit
+Guard in `init()`), wenn kein Token mehr im Speicher steht — Filme/Serien bleiben
+nach einem harten Kill also da. Außerdem war `APP_VERSION` hardgecoded alt; die
+Konstante wird ab jetzt bei jedem Release mitgezogen.
+
+## 1.5.18 – 1.5.49
+
+Diese Versionen wurden gebaut, ohne dass der Repository-Baum mitgezogen wurde
+(die laufende Linie lag auf dem Entwicklungsrechner). Der Stand ist mit 1.5.52
+vollständig im Repo. Schwerpunkte der Linie: Mehrsprachigkeit (74 Sprachdateien,
+Sprachwahl in den Einstellungen), Demo-Modus mit öffentlich-rechtlichen Sendern,
+Jellyfin als zweite VOD-Quelle, Kamera-Tab mit drei Server-Formaten, Splash-
+Screen und die Store-Vorbereitung (Lizenzen im Auslieferpaket).
+
 ## 1.5.11 — 22.11.2026
 
 CSS im TV-Chromium nachgerüstet.
