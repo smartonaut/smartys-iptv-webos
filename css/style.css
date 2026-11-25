@@ -644,3 +644,113 @@ body {
 /* EPG virtualisiert: der Behälter trägt die volle Höhe, die Zeilen liegen
    absolut darin und werden nur für den sichtbaren Bereich gebaut. */
 .epg-rows { position: relative; display: block; }
+
+/* =====================================================================
+ *  RTL — Arabisch, Kurdisch (Sorani), Farsi, Urdu  (v1.5.25)
+ *  Gesetzt wird dir="rtl" am <html>. Flex-Zeilen spiegeln sich dadurch
+ *  von selbst; hier nur die Stellen, die feste Seiten tragen.
+ * ===================================================================== */
+html[dir="rtl"] body { direction: rtl; }
+
+html[dir="rtl"] .sidebar .cat.active { border-left: 0; border-right: 4px solid #FFC94D; }
+html[dir="rtl"] .settings-row .settings-val { margin-left: 0; margin-right: auto; }
+html[dir="rtl"] .osd { left: auto; right: 40px; }
+html[dir="rtl"] .preview-box { right: auto; left: 16px; }
+html[dir="rtl"] .watch-badge { left: auto; right: 8px; }
+html[dir="rtl"] .credits-hint { right: auto; left: 48px; text-align: left; }
+html[dir="rtl"] .credits-hint .credits-text,
+html[dir="rtl"] .epg-title, html[dir="rtl"] .ch-name { text-align: right; }
+html[dir="rtl"] .search, html[dir="rtl"] input.search, html[dir="rtl"] #live-search,
+html[dir="rtl"] #movies-search, html[dir="rtl"] #series-search { text-align: right !important; direction: rtl; }
+html[dir="rtl"] input, html[dir="rtl"] textarea { text-align: right; direction: rtl; }
+@media (max-width: 960px) {
+    html[dir="rtl"] .pair-col { text-align: right; }
+}
+
+/* Zahlen, Uhrzeiten und Kanalnummern bleiben auch in RTL linkslaeufig. */
+html[dir="rtl"] .ch-epg { text-align: right; unicode-bidi: plaintext; }
+/* Uhrzeiten und Zahlen bleiben linkslaeufig, auch in RTL. */
+html[dir="rtl"] .epg-time, html[dir="rtl"] .ch-epg b { direction: ltr; unicode-bidi: embed; }
+
+/* Sprachwaehler: Liste ueber der Einstellungsseite */
+#lang-picker { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 950;
+    background: rgba(6, 9, 14, 0.94); display: flex; flex-direction: column; padding: 60px 90px; }
+#lang-picker h3 { color: #FFC94D; font-size: 30px; margin: 0 0 26px; }
+#lang-picker .lp-grid { display: flex; flex-wrap: wrap; gap: 12px; overflow-y: auto; }
+#lang-picker .lp-item { padding: 14px 22px; border-radius: 12px; background: #141A26;
+    border: 1px solid #26314E; color: #E8EEFC; font-size: 19px; cursor: pointer; min-width: 190px; }
+#lang-picker .lp-item.active { border-color: #FFC94D; color: #FFC94D; }
+#lang-picker .lp-item:focus { outline: 3px solid #FFC94D; }
+
+/* =====================================================================
+ *  Kameras (v1.5.28)
+ * ===================================================================== */
+.cam-grid { display: flex; flex-wrap: wrap; gap: 14px; padding: 4px 0 20px; }
+.cam-tile { width: 300px; min-height: 96px; padding: 16px 18px; border-radius: 14px;
+    background: #141A26; border: 1px solid #26314E; cursor: pointer; }
+.cam-tile-name { font-size: 19px; color: #E8EEFC; font-weight: 600; }
+.cam-tile-sub { font-size: 15px; color: #8FA3C8; margin-top: 6px; }
+.cam-tile:focus, .cam-tile.active { outline: 3px solid #FFC94D; border-color: #FFC94D; }
+.cam-player { margin-top: 16px; }
+.cam-player-head { display: flex; align-items: center; gap: 18px; margin-bottom: 12px; }
+.cam-player-head span { font-size: 22px; color: #FFC94D; }
+.cam-stage { background: #000; border-radius: 14px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; min-height: 380px; }
+.cam-video, .cam-img { width: 100%; height: auto; max-height: 70vh; object-fit: contain; display: block; }
+
+/* =====================================================================
+ *  Kamera-Wand (v1.5.52) — Kiosk-Ansicht
+ *  Schwarz, KEIN Balken ueber dem Bild: der Name steht als kleiner Text
+ *  (11 px) mit Textschatten direkt auf dem Bild. Kopfzeile liegt
+ *  ausserhalb des Rasters (schwarzer Grund, kein Overlay auf dem Video).
+ * ===================================================================== */
+.cam-wall {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 900;
+    display: flex; flex-direction: column; background: #000;
+    padding: 6px 10px 10px;
+}
+.cam-wall-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; height: 52px; }
+.cam-wall-head .btn-ghost { font-size: 16px; padding: 6px 14px; }
+.cam-wall-title { font-size: 20px; font-weight: bold; color: #E8EEFC; }
+.cam-wall-cols-label { font-size: 13px; color: #8FA3C8; margin-left: 8px; }
+.cam-wall .wall-col { min-width: 40px; text-align: center; padding: 6px 8px; font-size: 15px; }
+.cam-wall .wall-col.aktiv { border-color: #FFC94D; color: #FFC94D; font-weight: bold; }
+.cam-wall-count { font-size: 13px; color: #8FA3C8; margin-left: auto; }
+.cam-wall-grid { flex: 1 1 auto; display: grid; gap: 6px; min-height: 0; }
+.cam-wall-tile { position: relative; background: #000; border-radius: 8px; overflow: hidden; outline: none; }
+.cam-wall-tile:focus { outline: 2px solid rgba(255, 201, 77, 0.85); outline-offset: -2px; }
+.cam-wall-stage { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; }
+.cam-wall-video, .cam-wall-img {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: contain; display: block; background: #000;
+}
+.cam-wall-name {
+    position: absolute; left: 8px; bottom: 6px; font-size: 11px; line-height: 1.2;
+    color: #FFFFFF; font-weight: 600; pointer-events: none;
+    text-shadow: 1px 1px 3px #000, 0 0 4px #000;
+}
+.cam-wall-tile:focus .cam-wall-name { color: #FFC94D; font-weight: bold; }
+.cam-wall-chips { position: absolute; right: 6px; bottom: 4px; display: flex; gap: 4px; }
+.cam-wall-chip {
+    background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 201, 77, 0.55);
+    border-radius: 6px; color: #FFC94D; font-size: 11px; line-height: 1;
+    padding: 4px 7px; cursor: pointer;
+}
+.cam-wall-chip:focus { background: #FFC94D; color: #000; border-color: #FFC94D; outline: none; }
+.cam-wall-empty { color: #8FA3C8; font-size: 16px; padding: 40px; }
+
+/* Abschnitts-Ueberschrift in den Einstellungen */
+.settings-sec {
+    margin: 16px 0 2px; font-size: 14px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #6B7A99; font-weight: bold;
+}
+
+/* Kamera- und Menue-Ausblendung */
+.tab.hidden { display: none !important; }
+
+/* 1.5.39: Kennzeichen für Folgen, die aus der IPTV-Line ergänzt wurden */
+.ep-src {
+    font-size: 0.72em; letter-spacing: 0.4px; padding: 1px 6px; margin-right: 8px;
+    border: 1px solid #3d5a80; border-radius: 3px; color: #8fb6e8; background: rgba(60,100,160,0.18);
+    text-transform: uppercase;
+}

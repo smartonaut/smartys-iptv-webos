@@ -52,6 +52,7 @@
                 <li>Hinterlege dort deine Playlist — dann hier „Prüfen“</li>
             </ol>
             <button id="btn-pair" class="btn-primary">Prüfen — Playlist laden</button>
+            <button id="btn-demo" class="btn-ghost" data-i18n="act.demo_start">▶ Demo-Modus — öffentliche Sender</button>
             <div id="pair-msg" class="msg"></div>
         </section>
 
@@ -79,12 +80,13 @@
             <div class="topbar">
                 <div class="topbar-brand"><img src="img/logo.png" class="topbar-logo" alt=""><span class="topbar-title">Smartys Player</span></div>
                 <div class="tabs" id="main-tabs">
-                    <button class="tab active" data-tab="live">Live-TV</button>
-                    <button class="tab" data-tab="movies">Filme</button>
-                    <button class="tab" data-tab="series">Serien</button>
-                    <button class="tab" data-tab="watch">Merken</button>
-                    <button class="tab" data-tab="epg">Programm</button>
-                    <button class="tab" data-tab="downloads">Downloads</button>
+                    <button class="tab active" data-tab="live" data-i18n="nav.live">Live-TV</button>
+                    <button class="tab" data-tab="movies" data-i18n="nav.movies">Filme</button>
+                    <button class="tab" data-tab="series" data-i18n="nav.series">Serien</button>
+                    <button class="tab" data-tab="watch" data-i18n="nav.watch">Merken</button>
+                    <button class="tab" data-tab="epg" data-i18n="nav.guide">Programm</button>
+                    <button class="tab" data-tab="cam" data-i18n="nav.cams">Kameras</button>
+                    <button class="tab" data-tab="downloads" data-i18n="nav.downloads">Downloads</button>
                 </div>
                 <div class="topbar-right">
                     <button id="btn-profile" class="btn-ghost">Profil</button>
@@ -99,7 +101,7 @@
                         <div class="pane-title">Live-TV</div>
                         <div id="live-count" class="pane-sub"></div>
                     </div>
-                    <input id="live-search" class="search" type="text" placeholder="Sender suchen…">
+                    <input id="live-search" class="search" type="text" placeholder="Sender suchen…" data-i18n-placeholder="search.channels">
                 </div>
                 <div class="columns">
                     <div id="live-categories" class="sidebar"></div>
@@ -120,7 +122,7 @@
                         <div class="pane-title">Filme</div>
                         <div id="movies-count" class="pane-sub"></div>
                     </div>
-                    <input id="movies-search" class="search" type="text" placeholder="Film suchen…">
+                    <input id="movies-search" class="search" type="text" placeholder="Film suchen…" data-i18n-placeholder="search.movies">
                 </div>
                 <div class="columns">
                     <div id="movies-categories" class="sidebar"></div>
@@ -135,7 +137,7 @@
                         <div class="pane-title">Serien</div>
                         <div id="series-count" class="pane-sub"></div>
                     </div>
-                    <input id="series-search" class="search" type="text" placeholder="Serie suchen…">
+                    <input id="series-search" class="search" type="text" placeholder="Serie suchen…" data-i18n-placeholder="search.series">
                 </div>
                 <div class="columns">
                     <div id="series-categories" class="sidebar"></div>
@@ -172,6 +174,24 @@
                 </div>
                 <div id="downloads-list" class="dl-list"></div>
             </div>
+
+            <!-- Kameras: öffentliche Webcams + eigene Sicherheitskameras -->
+            <div id="pane-cam" class="pane hidden">
+                <div class="pane-head">
+                    <div class="pane-title">Kameras</div>
+                    <div id="cam-count" class="pane-sub"></div>
+                    <!-- v1.5.52: Kamera-Wand — nur bei eingeschalteten Firmen-Kameras -->
+                    <button id="btn-cam-wall" class="btn-ghost hidden">Kamera-Wand</button>
+                </div>
+                <div id="cam-grid" class="cam-grid"></div>
+                <div id="cam-player" class="cam-player hidden">
+                    <div class="cam-player-head">
+                        <span id="cam-title"></span>
+                        <button id="btn-cam-close" class="btn-ghost">← Zurück</button>
+                    </div>
+                    <div id="cam-stage" class="cam-stage"></div>
+                </div>
+            </div>
         </section>
 
         <!-- ===================== FILM-DETAIL ===================== -->
@@ -201,6 +221,64 @@
                         <span>Vorschaufenster</span>
                         <span id="pv-status" class="settings-val"></span>
                         <button id="btn-pv" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Sprache</span>
+                        <span id="lang-status" class="settings-val"></span>
+                        <button id="btn-lang" class="btn-ghost">Wechseln</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Jellyfin-Server</span>
+                        <span id="jf-status" class="settings-val"></span>
+                        <button id="btn-jfscan" class="btn-ghost">Suchen</button>
+                        <button id="btn-jflogin" class="btn-ghost">Anmelden</button>
+                    </div>
+                    <div id="jf-panel" class="hidden" style="padding:4px 0 16px">
+                        <div class="settings-row"><span>Server</span><span id="jf-server" class="settings-val">—</span></div>
+                        <div class="settings-row"><span>Benutzer</span><span id="jf-user" class="settings-val">—</span></div>
+                        <div class="settings-row"><span>Status</span><span id="jf-info" class="settings-val"></span></div>
+                        <div style="display:flex;gap:10px;margin-top:8px">
+                            <button id="btn-jf-qr" class="btn-ghost">Zugangsdaten am Handy eingeben (QR)</button>
+                            <button id="btn-jf-abmelden" class="btn-ghost">Abmelden</button>
+                        </div>
+                    </div>
+                    <div class="settings-row" style="align-items:flex-start">
+                        <span style="color:#8FA3C8;font-size:0.9em">Open Source: hls.js (Apache-2.0, © Dailymotion) ·
+                        Jellyfin-Anbindung über die öffentliche HTTP-API (kein fremder Code enthalten).
+                        Vollständige Texte im Paket: LIZENZEN.md, LIZENZ-hlsjs.txt</span>
+                    </div>
+                    <div class="settings-sec">Kameras &amp; freie Streams</div>
+                    <div class="settings-row">
+                        <span>Firmen-Kameras (VLAN)</span>
+                        <span id="src-firmen-status" class="settings-val"></span>
+                        <button id="btn-src-firmen" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Freie Kameras</span>
+                        <span id="src-frei-status" class="settings-val"></span>
+                        <button id="btn-src-frei" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Freie Streams</span>
+                        <span id="src-streams-status" class="settings-val"></span>
+                        <button id="btn-src-streams" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div class="settings-row">
+                        <span>Kamera-Server (Smartys CamViewer)</span>
+                        <span id="camserver-status" class="settings-val"></span>
+                        <button id="btn-camscan" class="btn-ghost">Suchen</button>
+                        <button id="btn-camserver" class="btn-ghost">Einrichten</button>
+                    </div>
+                    <div id="camscan-info" class="card-label hidden" style="padding:6px 0 14px"></div>
+                    <div class="settings-row">
+                        <span>Eingabe am Handy (QR)</span>
+                        <span id="qrweb-status" class="settings-val"></span>
+                        <button id="btn-qrweb" class="btn-ghost">Umschalten</button>
+                    </div>
+                    <div id="qrweb-panel" class="hidden" style="padding:14px 0 18px">
+                        <div class="card-label" style="margin-bottom:8px">Am Handy öffnen — Suchbegriffe, Playlist- und EPG-Adressen tippen:</div>
+                        <div id="qrweb-url" style="font:600 17px ui-monospace,monospace;color:#FFC94D;margin-bottom:10px">—</div>
+                        <div id="qrweb-box" style="background:#fff;display:inline-block;padding:10px;border-radius:12px"></div>
                     </div>
                     <div class="settings-row">
                         <span>IMDb-/Trailer-Zusatzinfos</span>
@@ -315,6 +393,21 @@
             </div>
         </section>
 
+        <!-- ============ KAMERA-WAND (v1.5.52) — Vollbild über allem ============ -->
+        <section id="cam-wall" class="cam-wall hidden">
+            <div class="cam-wall-head">
+                <button id="btn-wall-back" class="btn-ghost">← Zurück</button>
+                <span class="cam-wall-title">Kamera-Wand</span>
+                <span class="cam-wall-cols-label">Spalten:</span>
+                <button class="btn-ghost wall-col" data-cols="1">1</button>
+                <button class="btn-ghost wall-col" data-cols="2">2</button>
+                <button class="btn-ghost wall-col" data-cols="3">3</button>
+                <button class="btn-ghost wall-col" data-cols="4">4</button>
+                <span id="cam-wall-count" class="cam-wall-count"></span>
+            </div>
+            <div id="cam-wall-grid" class="cam-wall-grid"></div>
+        </section>
+
         <!-- =================== MENÜ-OVERLAY (v1.1.0) =================== -->
         <div id="menu-overlay" class="menu-overlay hidden">
             <div class="menu-card">
@@ -326,7 +419,10 @@
 
     <script src="js/qr.js"></script>
     <script src="js/hls.min.js"></script>
+    <script src="js/geraet.js"></script>
     <script src="js/identity.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/i18n.keys.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

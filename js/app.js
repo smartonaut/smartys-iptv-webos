@@ -80,7 +80,206 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.17";
+var APP_VERSION = "1.5.52";
+
+/* ---------------------------------------------------------------
+ *  Demo-Modus (v1.5.18)
+ *  Nur oeffentlich-rechtliche / staatlich finanzierte Sender, die
+ *  ihren Live-Stream SELBST frei und ohne Login anbieten (SD).
+ *  Gruppiert nach Land. Hier duerfen NUR legale, frei zugaengliche
+ *  Streams stehen — keine Lines, keine Credentials, kein Premium.
+ *  Vorbild: Enigma2/plugin/demo.py
+ * --------------------------------------------------------------- */
+var DEMO_CHANNELS = [
+    /* Nur verifizierte, offiziell frei empfangbare Streams (22.11.2026 selbst per HTTP geprueft:
+       200 + #EXTM3U). Laender-Gruppen entstehen automatisch aus dem Feld country. */
+    { country: "Deutschland", name: "Das Erste", url: "https://daserste-live.ard-mcdn.de/daserste/live/hls/de/master.m3u8" },
+    { country: "Deutschland", name: "ZDF", url: "https://zdf-hls-15.akamaized.net/hls/live/2016498/de/high/master.m3u8" },
+    { country: "Deutschland", name: "3sat", url: "https://zdf-hls-18.akamaized.net/hls/live/2016501/dach/high/master.m3u8" },
+    { country: "Deutschland", name: "ARTE", url: "https://artesimulcast.akamaized.net/hls/live/2030993/artelive_de/index.m3u8" },
+    { country: "Deutschland", name: "phoenix", url: "https://zdf-hls-19.akamaized.net/hls/live/2016502/de/high/master.m3u8" },
+    { country: "Deutschland", name: "tagesschau24", url: "https://tagesschau.akamaized.net/hls/live/2020115/tagesschau/tagesschau_1/master.m3u8" },
+    { country: "Deutschland", name: "KiKA", url: "https://kikahls.akamaized.net/hls/live/2022690/livetvkika_ww/master.m3u8" },
+    { country: "Deutschland", name: "ONE", url: "https://mcdn-one.ard.de/ardone/hls/master.m3u8" },
+    { country: "Deutschland", name: "ZDFneo", url: "https://zdf-hls-16.akamaized.net/hls/live/2016499/de/high/master.m3u8" },
+    { country: "Deutschland", name: "ZDFinfo", url: "https://zdf-hls-17.akamaized.net/hls/live/2016500/de/high/master.m3u8" },
+    { country: "Deutschland", name: "ARD-alpha", url: "https://mcdn.br.de/br/fs/ard_alpha/hls/de/master.m3u8" },
+    { country: "Deutschland", name: "BR Fernsehen", url: "https://mcdn.br.de/br/fs/bfs_sued/hls/de/master.m3u8" },
+    { country: "Deutschland", name: "NDR Fernsehen", url: "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_hh/master.m3u8" },
+    { country: "Deutschland", name: "WDR Fernsehen", url: "https://wdr-live.ard-mcdn.de/wdr/live/hls/de/master.m3u8" },
+    { country: "Deutschland", name: "hr-fernsehen", url: "https://hrhls.akamaized.net/hls/live/2024525/hrhls/index.m3u8" },
+    { country: "Deutschland", name: "DW English", url: "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/master.m3u8" },
+    { country: "Deutschland", name: "DW Deutsch+", url: "https://dwamdstream103.akamaized.net/hls/live/2015526/dwstream103/master.m3u8" },
+    { country: "Österreich", name: "ORF III", url: "https://orf3-247.mdn.ors.at/orf/orf3/qxa-247/manifest.m3u8" },
+    { country: "Frankreich", name: "France 24", url: "https://live.france24.com/hls/live/2037179/F24_FR_HI_HLS/master_5000.m3u8" },
+    { country: "Frankreich", name: "France 24 English", url: "https://live.france24.com/hls/live/2037218/F24_EN_HI_HLS/master_5000.m3u8" },
+    { country: "Frankreich", name: "TV5Monde Europe", url: "https://ott.tv5monde.com/Content/HLS/Live/channel(europe)/variant.m3u8" },
+    { country: "Spanien", name: "La 1", url: "https://rtvelivestream.rtve.es/rtvesec/la1/la1_main.m3u8" },
+    { country: "Spanien", name: "Canal 24 Horas", url: "https://rtvelivestream.rtve.es/rtvesec/24h/24h_main_dvr.m3u8" },
+    { country: "Spanien", name: "Teledeporte", url: "https://rtvelivestream.rtve.es/rtvesec/tdp/tdp_main.m3u8" },
+    { country: "Italien", name: "Rai 3 TGR Südtirol", url: "https://tgrbolzano-live.akamaized.net/hls/live/2025560/tgrbolzano/tgrbolzano/playlist.m3u8" },
+    { country: "Rumänien", name: "TVR 1", url: "https://tvr-1.lg.mncdn.com/tvr1/smil:tvr1.smil/playlist.m3u8" },
+    { country: "Rumänien", name: "TVR Info", url: "https://tvr-info.lg.mncdn.com/tvrinfo/smil:tvrinfo.smil/playlist.m3u8" },
+    { country: "Griechenland", name: "ERT News", url: "https://ert-ucdn.broadpeak-aas.com/bpk-tv/ERTNews/default/index.m3u8" },
+    { country: "Kroatien", name: "HRT 1", url: "https://bpcdnmanprod.nexttv.ht.hr/bpk-tv/HRT1/default/index.m3u8" },
+    { country: "Dänemark", name: "DR1", url: "https://drlivedr1hls.akamaized.net/hls/live/2113625/drlivedr1/master.m3u8" },
+    { country: "Finnland", name: "YLE TV1", url: "https://yletvworld.akamaized.net/hls/live/622540/yletv1w/index.m3u8" },
+    { country: "Finnland", name: "YLE TV2", url: "https://yletvworld.akamaized.net/hls/live/622541/yletv2w/index.m3u8" },
+    { country: "Türkei", name: "TRT 1", url: "https://tv-trt1.medya.trt.com.tr/master.m3u8" },
+    { country: "Türkei", name: "TRT Haber", url: "https://tv-trthaber.medya.trt.com.tr/master.m3u8" },
+    { country: "Türkei", name: "TRT World", url: "https://tv-trtworld.medya.trt.com.tr/master.m3u8" },
+    { country: "Türkei", name: "TRT Müzik", url: "https://tv-trtmuzik.medya.trt.com.tr/master.m3u8" },
+    { country: "Vereinigtes Königreich", name: "S4C", url: "https://v2.uk.live.s4c-cdn.co.uk/out/v1/S4C/UK_TX/uk_live/uk-tx-hls.m3u8" },
+    { country: "Vereinigte Staaten", name: "PBS Kids", url: "https://livestream.pbskids.org/out/v1/14507d931bbe48a69287e4850e53443c/est.m3u8" },
+    { country: "Vereinigte Staaten", name: "PBS World", url: "https://world.lls.pbs.org/index.m3u8" },
+    { country: "Vereinigte Staaten", name: "Bloomberg TV", url: "https://bloomberg.com/media-manifest/streams/us.m3u8" },
+    { country: "Brasilien", name: "TV Brasil", url: "https://tvbrasil-stream.ebc.com.br/index.m3u8" },
+    { country: "Brasilien", name: "Canal Gov", url: "https://canalgov-stream.ebc.com.br/index.m3u8" },
+    { country: "Mexiko", name: "Canal Once", url: "https://vivo.canaloncelive.tv/securepkgr3/oncemexico/playlist.m3u8" },
+    { country: "Japan", name: "NHK World-Japan", url: "https://media-tyo.hls.nhkworld.jp/hls/w/live/master.m3u8" },
+    { country: "China", name: "CGTN English", url: "https://english-livebkali.cgtn.com/live/encgtn.m3u8" },
+    { country: "Südkorea", name: "Arirang TV", url: "https://amdlive-ch01-ctnd-com.akamaized.net/arirang_1ch/smil:arirang_1ch.smil/playlist.m3u8" },
+    { country: "Singapur", name: "CNA", url: "https://d2e1asnsl7br7b.cloudfront.net/7782e205e72f43aeb4a48ec97f66ebbe/index.m3u8" },
+    { country: "Australien", name: "ABC News", url: "https://abc-news-dmd-streams-1.akamaized.net/out/v1/701126012d044971b3fa89406a440133/index.m3u8" },
+    { country: "Südafrika", name: "SABC News", url: "https://sabconetanw.cdn.mangomolo.com/news/smil:news.stream.smil/master.m3u8" },
+    { country: "Katar", name: "Al Jazeera English", url: "https://live-hls-apps-aje-fa.getaj.net/AJE/index.m3u8" },
+    { country: "Katar", name: "Al Jazeera Arabic", url: "https://live-hls-web-aja.getaj.net/AJA/index.m3u8" },
+    { country: "Israel", name: "i24NEWS English", url: "https://i24newsenglish-cdn.encoders.immergo.tv/master.m3u8" },
+    { country: "Vereinigte Arabische Emirate", name: "Sky News Arabia", url: "https://live-stream.skynewsarabia.com/c-horizontal-channel/horizontal-stream/index.m3u8" },
+    { country: "Europa (international)", name: "Euronews Deutsch", url: "https://cdn-euronews.akamaized.net/live/eds/euronews-de/25027/index.m3u8" },
+    { country: "Europa (international)", name: "Euronews English", url: "https://cdn-euronews.akamaized.net/live/eds/euronews-en/25002/index.m3u8" },
+    { country: "Vereinigtes Königreich", name: "GB News", url: "https://live-gbnews.simplestreamcdn.com/live5/gbnews/bitrate1.isml/manifest.m3u8" },
+    { country: "Italien", name: "Rai Südtirol", url: "https://wzstreaming.rai.it/TVlive/smil:liveStream.smil/index.m3u8" },
+    { country: "Spanien", name: "3Cat Info", url: "https://directes-tv-int.3catdirectes.cat/live-origin/canal324-hls/master.m3u8" },
+    { country: "Portugal", name: "ARTV", url: "https://playout172.livextend.cloud/liveiframe/_definst_/liveartvabr/playlist.m3u8" },
+    { country: "Kanada", name: "Savoir Media", url: "https://hls.savoir.media/live/stream.m3u8" },
+    { country: "Brasilien", name: "TV Câmara", url: "https://stream3.camara.gov.br/tv1/manifest.m3u8" },
+    { country: "Indien", name: "Sansad TV", url: "https://playhls.media.nic.in/hls/live/lstv/lstv.m3u8" },
+    { country: "Indien", name: "Aaj Tak", url: "https://feeds.intoday.in/aajtak/api/aajtakhd/master.m3u8" },
+    { country: "Indonesien", name: "TVRI World", url: "https://ott-balancer.tvri.go.id/live/eds/TVRIWorld/hls/TVRIWorld.m3u8" },
+    { country: "Indonesien", name: "Metro TV", url: "https://edge.medcom.id/live-edge/smil:metro.smil/playlist.m3u8" },
+    { country: "Australien", name: "Sky News Australia", url: "https://skynewsau-live.akamaized.net/hls/live/2002689/skynewsau-extra1/master.m3u8" },
+    { country: "Neuseeland", name: "Parliament TV", url: "https://ptvlive.kordia.net.nz/out/v1/daf20b9a9ec5449dadd734e50ce52b74/index.m3u8" },
+    { country: "Südafrika", name: "Cape Town TV", url: "https://cdn.freevisiontv.co.za/sttv/smil:ctv.stream.smil/playlist.m3u8" },
+    { country: "Südafrika", name: "Soweto TV", url: "https://cdn.freevisiontv.co.za/sttv/smil:soweto.stream.smil/playlist.m3u8" },
+    { country: "Schweiz", name: "TeleTicino", url: "https://vstream-cdn.ch/hls/teleticino.m3u8" },
+    { country: "Finnland", name: "Onni TV", url: "https://onnitv.digitacdn.net/live/ott/onnitv/playlist.m3u8" },
+    { country: "Polen", name: "Polsat News", url: "https://cdn-s-lb2.pluscdn.pl/lv/1517830/349/hls/f03a76f3/masterlist.m3u8" },
+    { country: "Polen", name: "TV Puls", url: "https://edge01.cdn.emitel.pl/bpk-tv/Puls_HD/hbbtv-hls/index.m3u8" },
+    { country: "Niederlande", name: "RTV Drenthe", url: "https://cdn.rtvdrenthe.nl/live/rtvdrenthe/tv/index.m3u8" },
+    { country: "Niederlande", name: "Tweede Kamer", url: "https://livestreaming.b67buv2.tweedekamer.nl/live/plenairezaal/index.m3u8?hd=1&keyframes=1" },
+    { country: "Schweden", name: "Expressen TV", url: "https://cdn0-03837-liveedge0.dna.ip-only.net/03837-liveedge0/smil:03837-tx2/playlist.m3u8" },
+    { country: "Norwegen", name: "TV Østfold", url: "https://streamnorge.com:8088/hls/tvo.m3u8" }
+];
+
+function demoSlug(s) {
+    return String(s).toLowerCase()
+        .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/* Laender in der Reihenfolge, in der sie in DEMO_CHANNELS stehen. */
+function demoCountries() {
+    var out = [], seen = {};
+    DEMO_CHANNELS.forEach(function (c) {
+        var k = demoSlug(c.country);
+        if (seen[k]) return;
+        seen[k] = true;
+        out.push({ category_id: "demo-" + k, category_name: c.country });
+    });
+    return out;
+}
+
+/* Demo-Kanaele in die Form der Xtream-Streams bringen, damit Liste,
+   Fokus, Vorschau und Wiedergabe unveraendert funktionieren. */
+function demoStreams() {
+    var nummer = {};
+    return DEMO_CHANNELS.map(function (c, i) {
+        var k = demoSlug(c.country);
+        nummer[k] = (nummer[k] || 0) + 1;
+        return {
+            name: c.name,
+            stream_id: "demo" + i,
+            num: nummer[k],
+            stream_icon: "",
+            category_id: "demo-" + k,
+            categoryName: c.country,
+            __demoUrl: c.url,
+            __pi: 0
+        };
+    });
+}
+
+/* Demo ohne Line starten: keine Pairing-Anfrage, keine Credentials. */
+function startDemo() {
+    if (!quelleStreams()) return;   /* freie Streams abgeschaltet */
+    state.demo = true;
+    state.providers = [];
+    state.categories = demoCountries();
+    state.selectedLiveCat = null;
+    state.channels = demoStreams();
+    state.liveQuery = "";
+    state.demoEpgCat = null;
+    show("view-home");
+    renderLiveCategories();
+    renderLiveChannels();
+    setPairMsg("");
+    if (typeof jfVodLaden === "function" && jfToken()) jfVodLaden();
+    if (typeof camServerLaden === "function") camServerLaden().then(function () { tabsAnpassen(); });
+    if (typeof tabsAnpassen === "function") tabsAnpassen();
+    loadDemoEpg();
+}
+
+/* ---------------------------------------------------------------
+ *  Demo-EPG: freie XMLTV-Quelle wie in der Fire-TV-Version
+ *  (epg.pw, ein XML pro Land). Wird nur fuer das gewaehlte Land
+ *  geladen, damit nicht 15 x 11 MB durch die Leitung gehen.
+ * --------------------------------------------------------------- */
+var DEMO_EPG_CC = {
+    /* epg.pw liefert genau diese Laender (22.11.2026 geprueft, CORS offen).
+       AT/CH laufen ueber die DE-Datei: dort stehen ORF und SRF mit drin. */
+    "Deutschland": "DE", "Österreich": "DE", "Schweiz": "DE",
+    "Vereinigtes Königreich": "GB", "Irland": "GB",
+    "Frankreich": "FR", "Russland": "RU",
+    "Vereinigte Staaten": "US", "Kanada": "CA", "Brasilien": "BR",
+    "Japan": "JP", "China": "CN", "Hongkong": "HK", "Taiwan": "TW",
+    "Indien": "IN", "Singapur": "SG", "Malaysia": "MY", "Indonesien": "ID",
+    "Vietnam": "VN", "Philippinen": "PH",
+    "Australien": "AU", "Neuseeland": "NZ", "Südafrika": "ZA"
+};
+/* Land der aktuell gewaehlten Kategorie (bzw. erstes Land). */
+function demoLand() {
+    var cat = String(state.selectedLiveCat || "");
+    if (cat.indexOf("demo-") === 0) {
+        var k = cat.slice(5);
+        for (var i = 0; i < DEMO_CHANNELS.length; i++) {
+            if (demoSlug(DEMO_CHANNELS[i].country) === k) return DEMO_CHANNELS[i].country;
+        }
+    }
+    return DEMO_CHANNELS.length ? DEMO_CHANNELS[0].country : null;
+}
+
+function loadDemoEpg() {
+    if (!state.demo) return Promise.resolve();
+    var land = demoLand();
+    if (!land) return Promise.resolve();
+    if (state.demoEpgCat === (state.selectedLiveCat || "") && state.xmltv && state.xmltv.ready &&
+        state.xmltv.geladenUm && (Date.now() - state.xmltv.geladenUm) < 6 * 3600 * 1000) {
+        return Promise.resolve();
+    }
+    state.demoEpgCat = state.selectedLiveCat || "";
+    var cc = DEMO_EPG_CC[land];
+    if (!cc) return Promise.resolve();   /* fuer dieses Land gibt es (noch) keine Quelle */
+    var url = "https://epg.pw/xmltv/epg_" + cc + ".xml";
+    if (state.demoEpgBusy) return Promise.resolve();
+    state.demoEpgBusy = true;
+    return loadXmltvUrl(url).then(function () {
+        state.demoEpgBusy = false;
+        if (state.demo) renderLiveChannels();
+    }).catch(function () {
+        state.demoEpgBusy = false;
+    });
+}
 
 var state = {
     playerId: null,
@@ -131,6 +330,7 @@ var state = {
     gScope: "live",             // Gruppen-Verwaltung: active Zeile
     grpMarks: {},               // category_id(String) -> markiert
     trailerFrom: "view-movie-detail",
+    camWall: false,             // Kamera-Wand offen? (v1.5.52)
 };
 
 /* =====================================================================
@@ -388,11 +588,27 @@ function liveUrl(streamId, pi) {
     var p = providerAt(pi);
     return p.server_url.replace(/\/+$/, "") + "/live/" + encodeURIComponent(p.username) + "/" + encodeURIComponent(p.password) + "/" + streamId + ".m3u8";
 }
+function jfIstJfId(id) { return String(id || "").indexOf("jf:") === 0; }
+
+/* Wiedergabe-Adresse für Jellyfin: HLS, das der Server bei Bedarf transkodiert. */
+function jfVideoUrl(id) {
+    var eid = String(id).slice(3);
+    var b = jfBase(), tk = jfToken();
+    if (!b || !tk) return "";
+    return b + "/Videos/" + encodeURIComponent(eid) + "/master.m3u8" +
+           "?api_key=" + encodeURIComponent(tk) +
+           "&MediaSourceId=" + encodeURIComponent(eid) +
+           "&VideoCodec=h264&AudioCodec=aac&TranscodingContainer=ts&SegmentContainer=ts" +
+           "&MaxStreamingBitrate=12000000&VideoBitrate=8000000&AudioBitrate=192000&Context=Streaming";
+}
+
 function movieUrl(streamId, ext) {
+    if (jfIstJfId(streamId)) return jfVideoUrl(streamId);
     var p = primaryProvider();
     return p.server_url.replace(/\/+$/, "") + "/movie/" + encodeURIComponent(p.username) + "/" + encodeURIComponent(p.password) + "/" + streamId + "." + (ext || "mp4");
 }
 function seriesUrl(episodeId, ext) {
+    if (jfIstJfId(episodeId)) return jfVideoUrl(episodeId);
     var p = primaryProvider();
     return p.server_url.replace(/\/+$/, "") + "/series/" + encodeURIComponent(p.username) + "/" + encodeURIComponent(p.password) + "/" + episodeId + "." + (ext || "mp4");
 }
@@ -449,6 +665,7 @@ function show(id) {
         }, 140);
     }
 }
+    try { if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0); } catch (e) {}
 
 function setPairMsg(text, cls) {
     var el = document.getElementById("pair-msg");
@@ -541,14 +758,14 @@ function screenSaverWaechter() {
             try {
                 bridge.call("luna://com.webos.service.tvpower/power/responseScreenSaverRequest",
                     JSON.stringify({
-                        clientName: "com.smartys.iptv",
+                        clientName: "com.smartys.tech",
                         ack: false,              /* false = nicht starten */
                         timestamp: m.timestamp
                     }));
             } catch (e) {}
         };
         bridge.call("luna://com.webos.service.tvpower/power/registerScreenSaverRequest",
-            JSON.stringify({ subscribe: true, clientName: "com.smartys.iptv" }));
+            JSON.stringify({ subscribe: true, clientName: "com.smartys.tech" }));
         state.screensaver.registriert = true;
         return true;
     } catch (e) {
@@ -1103,6 +1320,1090 @@ function trailerQuell() {
     if (f && state.currentView !== "view-trailer") f.src = "";
 }
 
+
+/* =====================================================================
+ *  v1.5.28: Kameras (öffentliche Webcams + eigene Sicherheitskameras)
+ *  und adaptive Menüleiste: Tabs erscheinen nur, wenn es Inhalte gibt.
+ * ===================================================================== */
+/* Wird nach der Kamera-Recherche gefuellt: { name, country, type, url }.
+   type: "hls" | "mjpeg" | "jpg" (jpg = Einzelbild mit Refresh)          */
+var CAM_CHANNELS = [
+    /* Nur öffentlich zugängliche Kameras, jede per HTTP geprüft (JPEG 200 bzw. HLS #EXTM3U).
+       Typen: hls = LiveStream, jpg = Einzelbild mit Refresh. RTSP braucht einen Server. */
+    { name: "Zugspitze Gipfelpanorama", country: "DE", type: "jpg", url: "https://www.foto-webcam.eu/webcam/zugspitze/current/1200.jpg", refresh: 60 },
+    { name: "Eibsee mit Zugspitze", country: "DE", type: "jpg", url: "https://www.foto-webcam.eu/webcam/eibsee-nord/current/1200.jpg", refresh: 60 },
+    { name: "Zell am See Seeufer", country: "AT", type: "jpg", url: "https://www.foto-webcam.eu/webcam/zellamsee/current/1200.jpg", refresh: 60 },
+    { name: "Furkajoch Passstrasse", country: "AT", type: "jpg", url: "https://www.foto-webcam.eu/webcam/furkajoch/current/1200.jpg", refresh: 60 },
+    { name: "Dornbirn Stadtpanorama", country: "AT", type: "jpg", url: "https://www.foto-webcam.eu/webcam/dornbirn/current/1200.jpg", refresh: 60 },
+    { name: "Bludenz Zentrum", country: "AT", type: "jpg", url: "https://www.foto-webcam.eu/webcam/bludenz-zentrum/current/1200.jpg", refresh: 60 },
+    { name: "Flensburger Hafen", country: "DE", type: "jpg", url: "https://www.foto-webcam.eu/webcam/flensburg/current/1200.jpg", refresh: 60 },
+    { name: "Dachau Altstadt", country: "DE", type: "jpg", url: "https://www.foto-webcam.eu/webcam/dachau/current/1200.jpg", refresh: 60 },
+    { name: "Opel-Zoo Kronberg", country: "DE", type: "jpg", url: "https://cam.opel-zoo.de/current.jpg", refresh: 30 },
+    { name: "Brunnen Vierwaldstättersee", country: "CH", type: "jpg", url: "https://www.foto-webcam.eu/webcam/brunnen/current/1200.jpg", refresh: 60 },
+    { name: "San Diego Zoo — Koala", country: "US", type: "hls", url: "https://zssd-koala.hls.camzonecdn.com/CamzoneStreams/zssd-koala/Playlist.m3u8", refresh: 0 },
+    { name: "San Diego Zoo — Löwe", country: "US", type: "hls", url: "https://zssd-lion.hls.camzonecdn.com/CamzoneStreams/zssd-lion/Playlist.m3u8", refresh: 0 },
+    { name: "San Diego Zoo — Schnabeltier", country: "US", type: "hls", url: "https://zssd-platypus.hls.camzonecdn.com/CamzoneStreams/zssd-platypus/Playlist.m3u8", refresh: 0 },
+    { name: "San Francisco — I-80 Powell St", country: "US", type: "hls", url: "https://wzmedia.dot.ca.gov/D4/W80_at_Powell_St.stream/playlist.m3u8", refresh: 0 },
+    { name: "Minneapolis — I-35 NB", country: "US", type: "hls", url: "https://video.dot.state.mn.us/public/D6-C132.stream/playlist.m3u8", refresh: 0 },
+    { name: "Seattle — 12th Ave NE", country: "US", type: "hls", url: "https://61e0c5d388c2e.streamlock.net/live/12_NE_50.stream/playlist.m3u8", refresh: 0 },
+    { name: "E39 Fidjane (Statens vegvesen)", country: "NO", type: "hls", url: "https://kamera.vegvesen.no/public/1029002_1/manifest.m3u8", refresh: 0 },
+    { name: "Ribblehead Viaduct", country: "GB", type: "hls", url: "https://paxman.railcam.co.uk/Ribblehead_Viaduct/tracks-v1a1/mono.m3u8", refresh: 0 },
+    { name: "Cianjur — Tugu Gentur", country: "ID", type: "hls", url: "https://atcs.cianjurkab.go.id:5443/LieApp/streams/BundaranTuguGentur.m3u8", refresh: 0 },
+    { name: "Richmond — 14th & Dock", country: "US", type: "hls", url: "https://media-sfs6.vdotcameras.com:443/rtplive/richmondstream014/playlist.m3u8", refresh: 0 }
+];
+
+
+
+/* =====================================================================
+ *  Jellyfin — Filme und Serien in die bestehenden Tabs (Stufe 2)
+ *  Die Einträge werden so geformt wie Xtream-Einträge (stream_id "jf:<id>"),
+ *  damit Liste, Fokus, Detailseite und Wiedergabe unverändert bleiben.
+ * ===================================================================== */
+function jfBild(it, breite) {
+    var tags = it.ImageTags || {};
+    if (!tags.Primary) return "";
+    return jfBase() + "/Items/" + encodeURIComponent(it.Id) + "/Images/Primary?maxHeight=" +
+        (breite || 420) + "&quality=88&tag=" + encodeURIComponent(tags.Primary) +
+        "&api_key=" + encodeURIComponent(jfToken());
+}
+
+function jfGet(pfad) {
+    return new Promise(function (res, rej) {
+        var x = new XMLHttpRequest();
+        x.open("GET", jfBase() + pfad, true);
+        x.setRequestHeader("X-Emby-Token", jfToken());
+        x.timeout = 12000;
+        x.onload = function () {
+            if (x.status !== 200) { rej(new Error("HTTP " + x.status)); return; }
+            try { res(JSON.parse(x.responseText) || {}); } catch (e) { rej(new Error("nicht lesbar")); }
+        };
+        x.onerror = function () { rej(new Error("nicht erreichbar")); };
+        x.ontimeout = function () { rej(new Error("Zeitüberschreitung")); };
+        x.send();
+    });
+}
+
+
+/* =====================================================================
+ *  Zwei Quellen zusammenführen: Jellyfin (lokal) + IPTV-Line (Xtream)
+ *  Fehlt eine Staffel lokal, wird sie aus der Line ergänzt — lokal hat
+ *  Vorrang, die Line füllt nur Lücken.
+ * ===================================================================== */
+function normTitel(s) {
+    return String(s || "").toLowerCase()
+        .replace(/\((\d{4})\)/g, " ")
+        .replace(/\b(19|20)\d{2}\b/g, " ")
+        .replace(/[^a-z0-9äöüß]+/g, " ").trim();
+}
+
+/* Serien der Line merken, solange sie noch nicht von Jellyfin überschrieben sind. */
+function lineSerienMerken() {
+    if (state.providers && state.providers.length && state.seriesShows && state.seriesShows.length) {
+        var nurLine = state.seriesShows.filter(function (s) { return !s.__jf; });
+        if (nurLine.length) state.xtSeries = nurLine;
+    }
+    return state.xtSeries || [];
+}
+
+function lineSerieZu(serie) {
+    var liste = state.xtSeries || [];
+    if (!liste.length) return null;
+    var n = normTitel(serie.name);
+    for (var i = 0; i < liste.length; i++) {
+        if (normTitel(liste[i].name) === n) return liste[i];
+    }
+    return null;
+}
+
+/* Folgen aus beiden Quellen; pro Staffel/Folge gewinnt die lokale Quelle. */
+function episodenBeiderQuellen(serie) {
+    var lokale = serie.__jf ? jfSerienInfo(serie) : Promise.resolve(null);
+    var p = primaryProvider();
+    var lineSerie = lineSerieZu(serie);
+    var ausLine = (lineSerie && p) ? xtream(p, "get_series_info", { series_id: lineSerie.series_id }) : Promise.resolve(null);
+    if (!lineSerie && !serie.__jf && p) ausLine = xtream(p, "get_series_info", { series_id: serie.series_id });
+
+    return Promise.all([lokale, ausLine]).then(function (r) {
+        var lokal = (r[0] && r[0].episodes) || {};
+        var line = (r[1] && r[1].episodes) || {};
+        var zusammen = {};
+        Object.keys(lokal).forEach(function (sk) {
+            zusammen[sk] = lokal[sk].map(function (e) { return e; });
+        });
+        var ergaenzt = 0;
+        Object.keys(line).forEach(function (sk) {
+            if (!zusammen[sk]) zusammen[sk] = [];
+            var vorhanden = {};
+            zusammen[sk].forEach(function (e) { vorhanden[String(parseInt(e.episode_num, 10) || 0)] = true; });
+            line[sk].forEach(function (e) {
+                if (!vorhanden[String(parseInt(e.episode_num, 10) || 0)]) {
+                    e.__xt = true;                 /* nur in der Line vorhanden */
+                    zusammen[sk].push(e); ergaenzt++;
+                }
+            });
+        });
+        return { episodes: zusammen, ergaenzt: ergaenzt, hatLine: !!(lineSerie || r[1]) };
+    });
+}
+
+function jfVodLaden() {
+    if (!jfBase() || !jfToken() || !jfUserId()) return Promise.resolve(false);
+    var uid = jfUserId();
+    var felder = "Fields=ProductionYear,RunTimeTicks,Overview,CommunityRating,ImageTags,Genres,MediaSources,RecursiveItemCount,ChildCount";
+    return Promise.all([
+        jfGet("/Users/" + uid + "/Items?IncludeItemTypes=Movie&Recursive=true&SortBy=SortName&Limit=800&" + felder),
+        jfGet("/Users/" + uid + "/Items?IncludeItemTypes=Series&Recursive=true&SortBy=SortName&Limit=800&" + felder)
+    ]).then(function (r) {
+        /* Nur Einträge mit wirklich vorhandener Datei — sonst gibt es tote Kacheln. */
+        function spielbar(it) { return !!(it && it.MediaSources && it.MediaSources.length); }
+        var filme = (r[0].Items || []).filter(spielbar).map(function (it) {
+            return {
+                stream_id: "jf:" + it.Id, name: it.Name,
+                stream_icon: jfBild(it), category_id: "jf-filme", categoryName: "Jellyfin",
+                container_extension: "m3u8", __jf: true,
+                rating_5based: it.CommunityRating ? (it.CommunityRating / 2) : 0,
+                plot: it.Overview || "", year: it.ProductionYear || ""
+            };
+        });
+        /* Serien ohne jede Folge ausblenden — aber nur, wenn die Zahl wirklich 0 ist. */
+        var serien = (r[1].Items || []).filter(function (it) {
+            var n = (it.RecursiveItemCount === undefined || it.RecursiveItemCount === null) ? it.ChildCount : it.RecursiveItemCount;
+            return n === undefined || n === null || n > 0;
+        }).map(function (it) {
+            return {
+                series_id: "jf:" + it.Id, name: it.Name, cover: jfBild(it),
+                category_id: "jf-serien", categoryName: "Jellyfin", __jf: true,
+                plot: it.Overview || "", genre: (it.Genres || []).join(", "),
+                rating_5based: it.CommunityRating ? (it.CommunityRating / 2) : 0
+            };
+        });
+        if (filme.length) {
+            state.vodMovies = filme;
+            state.vodCategories = [{ category_id: "jf-filme", category_name: "Jellyfin" }];
+        }
+        var lineSerien = lineSerienMerken();
+        if (serien.length && lineSerien.length) {
+            var bekannt = {};
+            serien.forEach(function (s) { bekannt[normTitel(s.name)] = true; });
+            lineSerien.forEach(function (s) {
+                if (!bekannt[normTitel(s.name)]) { s.__nurLine = true; serien.push(s); }
+            });
+        }
+        if (serien.length) {
+            state.seriesShows = serien;
+            state.seriesCategories = [{ category_id: "jf-serien", category_name: "Jellyfin" }];
+        }
+        if (typeof tabsAnpassen === "function") tabsAnpassen();
+        if (typeof renderMovies === "function" && state.currentView === "view-home") renderMovies();
+        if (typeof renderSeries === "function" && state.currentView === "view-home") renderSeries();
+        return filme.length + serien.length;
+    }).catch(function () { return false; });
+}
+
+/* Folgen einer Jellyfin-Serie in die Form bringen, die openSeriesDetail erwartet. */
+function jfSerienInfo(serie) {
+    var sid = String(serie.series_id).slice(3);
+    var uid = jfUserId();
+    return jfGet("/Shows/" + encodeURIComponent(sid) + "/Episodes?UserId=" + encodeURIComponent(uid) +
+                 "&Fields=Overview,MediaSources&SortBy=ParentIndexNumber,IndexNumber").then(function (o) {
+        var eps = {};
+        (o.Items || []).filter(function (ep) { return ep.MediaSources && ep.MediaSources.length; }).forEach(function (ep) {
+            var st = String(ep.ParentIndexNumber || 1);
+            if (!eps[st]) eps[st] = [];
+            eps[st].push({
+                id: "jf:" + ep.Id,
+                episode_num: ep.IndexNumber || (eps[st].length + 1),
+                title: ep.Name || "",
+                container_extension: "m3u8",
+                __jf: true
+            });
+        });
+        return { episodes: eps };
+    });
+}
+
+/* =====================================================================
+ *  Kamera-Server (Smartys CamViewer Bridge, optional)
+ *  Der Bridge-Dienst laeuft auf einem PC (Windows/Linux) und stellt
+ *  RTSP-Kameras als HLS bereit. Er muss zwei Dinge liefern:
+ *    GET <server>/cams.json  →  [ {"name": "...", "url": "http://.../cam1/index.m3u8",
+ *                                   "type": "hls" | "mjpeg" | "jpg", "refresh": 10}, ... ]
+ *  und CORS erlauben:  Access-Control-Allow-Origin: *
+ * ===================================================================== */
+var CAM_LOCAL = [];
+
+/* --- Quellen-Schalter (v1.5.52) --------------------------------------
+ * Smartys Vorgabe: jede Kamera-/Stream-Quelle einzeln schaltbar. Die Flags
+ * greifen an der DATENQUELLE, nicht nur im Rendering — sonst laedt die App
+ * weiter, was der Nutzer abgeschaltet hat. Default: alle an (wie Android).
+ *   src_firmen  = Firmen-Kameras (VLAN / CamViewer-Backend)
+ *   src_frei    = freie Kameras (oeffentliche Webcams, CAM_CHANNELS)
+ *   src_streams = freie Streams (Demo-Modus, DEMO_CHANNELS)
+ * -------------------------------------------------------------------- */
+function quelleFirmen() { return lsGet("src_firmen", "ein") !== "aus"; }
+function quelleFrei() { return lsGet("src_frei", "ein") !== "aus"; }
+function quelleStreams() { return lsGet("src_streams", "ein") !== "aus"; }
+
+/* Sichtbares an die Schalter haengen: Demo-Einstieg und Wand-Knopf.
+   Der Wand-Knopf haengt am SCHALTER, nicht an der geladenen Liste — sonst
+   fehlt er genau dort, wo die Liste leer bleibt (Bueronetz). */
+function quellenSchalterAnwenden() {
+    var demo = document.getElementById("btn-demo");
+    if (demo) demo.classList.toggle("hidden", !quelleStreams());
+    var wall = document.getElementById("btn-cam-wall");
+    if (wall) wall.classList.toggle("hidden", !quelleFirmen());
+}
+
+/* Schalter umlegen und SOFORT wirksam machen: Datenquelle neu laden bzw.
+   verwerfen, Liste/Menue/Tab nachziehen, Einstellungen neu zeichnen. */
+function quelleUmschalten(key) {
+    lsSet(key, lsGet(key, "ein") === "ein" ? "aus" : "ein");
+    if (key === "src_firmen") {
+        if (quelleFirmen()) {
+            camServerLaden().then(function () {
+                if (state.tab === "cam") renderCamGrid();
+                if (typeof tabsAnpassen === "function") tabsAnpassen();
+            });
+        } else {
+            CAM_LOCAL = []; CAM_FIRMEN = [];
+            if (state.camWall) wandSchliessen();
+            if (state.camHls) { try { state.camHls.destroy(); } catch (e) {} state.camHls = null; }
+        }
+    }
+    quellenSchalterAnwenden();
+    if (state.tab === "cam") renderCamGrid();
+    if (typeof tabsAnpassen === "function") tabsAnpassen();
+    renderSettings();
+}
+
+function camServerUrl() { return (lsGet("camserver", "") || "").replace(/\/+$/, ""); }
+
+/* Firmen-Kameras vom CamViewer-Backend: GET <base>/api/cameras liefert ein
+   OBJEKT {"cameras":[{id,name,state}]}, kein Array. Wiedergabe ueber
+   <base>/hls/<id>/index.m3u8 (ffmpeg-HLS); der Producer startet erst auf
+   Anforderung, deshalb /api/stream/<id> einmal anstossen (idempotent). */
+var CAM_FIRMEN = [];
+function camFirmenLaden(base) {
+    CAM_FIRMEN = [];
+    if (!base || !quelleFirmen()) return Promise.resolve([]);
+    return http("GET", base + "/api/cameras", { timeout: 7000 }).then(function (xhr) {
+        if (xhr.status !== 200) throw new Error("kein /api/cameras");
+        var o = JSON.parse(xhr.responseText) || {};
+        var liste = Array.isArray(o) ? o : (o.cameras || []);
+        CAM_FIRMEN = liste.filter(function (c) {
+            return c && c.id !== undefined && c.id !== null;
+        }).map(function (c) {
+            var id = String(c.id);
+            return {
+                id: id, name: c.name || ("Kamera " + id), country: "PC",
+                type: "hls", lokal: true, firma: true, refresh: 0,
+                url: base + "/hls/" + encodeURIComponent(id) + "/index.m3u8"
+            };
+        });
+        CAM_FIRMEN.forEach(function (c) {
+            http("GET", base + "/api/stream/" + encodeURIComponent(c.id), { timeout: 6000 })
+                .catch(function () {});
+        });
+        return CAM_FIRMEN;
+    }).catch(function () { CAM_FIRMEN = []; return []; });
+}
+
+function camServerLaden() {
+    var base = camServerUrl();
+    CAM_LOCAL = [];
+    CAM_FIRMEN = [];
+    if (!base) return Promise.resolve();
+    if (!quelleFirmen()) return Promise.resolve();   /* Schalter AUS: gar nicht laden */
+    /* Zwei Formate, automatisch erkannt:
+       1. Smartys CamViewer Bridge:  <base>/cams.json  → [{name,url,type}]
+       2. go2rtc (z. B. auf sickram): <base>/api/streams → {"halle":{...},...}
+          HLS-URL je Stream: <base>/api/stream.m3u8?src=<name>
+       go2rtc laeuft bereits für die Firmenkameras — dort muss nichts geändert werden.
+       Parallel dazu das CamViewer-Backend (/api/cameras, ffmpeg-HLS) abfragen:
+       das ist die Wiedergabequelle, die webOS auch dekodiert. */
+    var liste = http("GET", base + "/cams.json", { timeout: 6000 }).then(function (xhr) {
+        if (xhr.status !== 200) throw new Error("kein cams.json");
+        var liste = JSON.parse(xhr.responseText);
+        if (!Array.isArray(liste)) liste = (liste && liste.cams) || [];
+        CAM_LOCAL = liste.filter(function (c) { return c && c.url; }).map(function (c) {
+            return { id: String(c.id || c.name || c.url), name: c.name || "Kamera", country: "PC",
+                     type: c.type || "hls", url: c.url, refresh: c.refresh || 10, lokal: true };
+        });
+    }).catch(function () {
+        /* Fallback: go2rtc */
+        return http("GET", base + "/api/streams", { timeout: 6000 }).then(function (xhr) {
+            if (xhr.status !== 200) throw new Error("kein go2rtc");
+            var o = JSON.parse(xhr.responseText) || {};
+            var out = [];
+            Object.keys(o).forEach(function (name) {
+                if (name === "wall") return;                 /* Sammelbild auslassen */
+                out.push({
+                    id: name,
+                    name: name.charAt(0).toUpperCase() + name.slice(1),
+                    country: "PC", type: "hls", lokal: true,
+                    url: base + "/api/stream.m3u8?src=" + encodeURIComponent(name)
+                });
+            });
+            CAM_LOCAL = out;
+        }).catch(function () { CAM_LOCAL = []; });
+    });
+    return Promise.all([liste, camFirmenLaden(base)]).then(function () {});
+}
+
+/* Alle Kameras je nach Quellen-Schalter: Firmen (Backend + Bridge) zuerst,
+   dann die oeffentlichen. Gleiche URL nur einmal. */
+function camListe() {
+    var liste = [];
+    if (quelleFirmen()) liste = liste.concat(CAM_FIRMEN, CAM_LOCAL);
+    if (quelleFrei()) liste = liste.concat(CAM_CHANNELS);
+    var seen = {};
+    return liste.filter(function (c) {
+        if (!c || !c.url) return false;
+        if (seen[c.url]) return false;
+        seen[c.url] = true;
+        return true;
+    });
+}
+
+
+/* =====================================================================
+ *  Kamera-Server automatisch im Heimnetz finden (v1.5.33)
+ *  Sucht im eigenen /24 nach go2rtc (Port 1986) und nach der
+ *  Smartys-CamViewer-Bridge (Port 8090). Nichts verlässt das Heimnetz.
+ * ===================================================================== */
+function camServerKandidaten() {
+    return [
+        { port: 1986, pfad: "/api/streams", name: "go2rtc" },
+        { port: 8090, pfad: "/cams.json", name: "CamViewer Bridge" }
+    ];
+}
+
+/* Eigene LAN-Adresse über luna (dieselbe Abfrage wie für den QR-Code). */
+function camScanIp() {
+    return new Promise(function (res) {
+        if (state.qrIp) { res(state.qrIp); return; }
+        qrwebIp(function (ip) { res(ip || ""); });
+    });
+}
+
+/* Einen Host prüfen. */
+function camProbe(ip, k, ms) {
+    return new Promise(function (res) {
+        try {
+            var x = new XMLHttpRequest();
+            x.open("GET", "http://" + ip + ":" + k.port + k.pfad, true);
+            x.timeout = ms || 700;
+            x.onload = function () {
+                if (x.status !== 200) { res(null); return; }
+                var ok = false;
+                try { ok = !!JSON.parse(x.responseText); } catch (e) { ok = false; }
+                res(ok ? { ip: ip, port: k.port, art: k.name, base: "http://" + ip + ":" + k.port } : null);
+            };
+            x.onerror = function () { res(null); };
+            x.ontimeout = function () { res(null); };
+            x.send();
+        } catch (e) { res(null); }
+    });
+}
+
+/* /24 durchsuchen: 24 Hosts gleichzeitig, damit es auf dem TV schnell bleibt. */
+function camServerFinden() {
+    return camScanIp().then(function (ip) {
+        if (!ip) return [];
+        var teile = ip.split(".");
+        if (teile.length !== 4) return [];
+        var praefix = teile.slice(0, 3).join(".") + ".";
+        var hosts = [];
+        for (var i = 1; i <= 254; i++) hosts.push(praefix + i);
+        var kand = camServerKandidaten();
+        var treffer = [], idx = 0;
+
+        function runde() {
+            var batch = [];
+            for (var b = 0; b < 24 && idx < hosts.length; b++) {
+                var host = hosts[idx++];
+                kand.forEach(function (k) {
+                    batch.push(camProbe(host, k, 650).then(function (r) {
+                        if (r && !treffer.some(function (t) { return t.base === r.base; })) treffer.push(r);
+                    }));
+                });
+            }
+            if (!batch.length) return Promise.resolve(treffer);
+            return Promise.all(batch).then(function () {
+                if (treffer.length) return treffer;      /* früh abbrechen: gefunden */
+                return runde();
+            });
+        }
+        return runde();
+    });
+}
+
+function camServerSuchen() {
+    var info = document.getElementById("camscan-info");
+    var st = document.getElementById("camserver-status");
+    if (!quelleFirmen()) {
+        /* Schalter AUS: der Scan ins Firmen-/Kamera-Netz unterbleibt ganz. */
+        if (info) {
+            info.classList.remove("hidden");
+            info.textContent = "Firmen-Kameras sind abgeschaltet — in den Einstellungen einschalten.";
+        }
+        return;
+    }
+    if (info) { info.classList.remove("hidden"); info.textContent = "Suche im Heimnetz…"; }
+    if (st) st.textContent = "suche…";
+    camServerFinden().then(function (treffer) {
+        if (!treffer.length) {
+            if (info) info.textContent = "Kein Server gefunden. Läuft das Zusatzpaket? Adresse sonst manuell per QR eintragen.";
+            renderSettings();
+            return;
+        }
+        var t = treffer[0];
+        lsSet("camserver", t.base);
+        if (info) info.textContent = "Gefunden: " + t.art + " auf " + t.ip + " (Port " + t.port + ")";
+        camServerLaden().then(function () {
+            renderSettings();
+            if (typeof tabsAnpassen === "function") tabsAnpassen();
+            if (state.tab === "cam") renderCamGrid();
+        });
+    }).catch(function () {
+        if (info) info.textContent = "Suche fehlgeschlagen.";
+        renderSettings();
+    });
+}
+
+
+/* =====================================================================
+ *  Jellyfin-Anbindung (v1.5.34)
+ *  Server im Heimnetz suchen, anmelden, Bibliotheken als Filme/Serien
+ *  anzeigen. Token liegt lokal (localStorage), Passwort wird nicht gespeichert.
+ * ===================================================================== */
+var JF_CLIENT = 'MediaBrowser Client="SmartysPlayer", Device="webOS", DeviceId="webos-1", Version="1.5"';
+
+function jfBase() { return (lsGet("jfserver", "") || "").replace(/\/+$/, ""); }
+function jfToken() { return lsGet("jftoken", ""); }
+function jfUserId() { return lsGet("jfuser", ""); }
+
+/* Server im /24 suchen (Port 8096). */
+function jfSuchen() {
+    return camScanIp().then(function (ip) {
+        /* Ohne luna-Antwort (fehlende Rechte) trotzdem suchen: erst die bekannte
+           Server-Adresse, dann die ueblichen Heimnetz-Praefixe. */
+        var praefixe = [];
+        if (ip && ip.split(".").length === 4) praefixe.push(ip.split(".").slice(0, 3).join(".") + ".");
+        var bekannt = (lsGet("jfserver", "") || lsGet("camserver", "") || "").replace(/^https?:\/\//, "");
+        if (bekannt && bekannt.split(".").length === 4) praefixe.push(bekannt.split(".").slice(0, 3).join(".") + ".");
+        ["192.168.1.", "192.168.0.", "192.168.4.", "10.0.0."].forEach(function (p) {
+            if (praefixe.indexOf(p) < 0) praefixe.push(p);
+        });
+        var hosts = [], i;
+        praefixe.forEach(function (pr) { for (i = 1; i <= 254; i++) hosts.push(pr + i); });
+        var treffer = [], idx = 0;
+        function probe(host) {
+            return new Promise(function (res) {
+                try {
+                    var x = new XMLHttpRequest();
+                    x.open("GET", "http://" + host + ":8096/System/Info/Public", true);
+                    x.timeout = 1200;
+                    x.onload = function () {
+                        try {
+                            var o = JSON.parse(x.responseText);
+                            if (o && o.Version) res({ base: "http://" + host + ":8096", name: o.ServerName || "", version: o.Version });
+                            else res(null);
+                        } catch (e) { res(null); }
+                    };
+                    x.onerror = function () { res(null); };
+                    x.ontimeout = function () { res(null); };
+                    x.send();
+                } catch (e) { res(null); }
+            });
+        }
+        function runde() {
+            var batch = [];
+            for (var b = 0; b < 24 && idx < hosts.length; b++) {
+                (function (host) { batch.push(probe(host).then(function (r) { if (r) treffer.push(r); })); })(hosts[idx++]);
+            }
+            if (!batch.length) return Promise.resolve(treffer);
+            return Promise.all(batch).then(function () { return treffer.length ? treffer : runde(); });
+        }
+        return runde();
+    });
+}
+
+/* Anmelden: Benutzer + Passwort -> Token (wird lokal gespeichert). */
+function jfAnmelden(base, user, pw) {
+    return new Promise(function (res, rej) {
+        var x = new XMLHttpRequest();
+        x.open("POST", base + "/Users/AuthenticateByName", true);
+        x.setRequestHeader("Content-Type", "application/json");
+        x.setRequestHeader("Authorization", JF_CLIENT);
+        x.timeout = 10000;
+        x.onload = function () {
+            if (x.status === 401) { rej(new Error("Anmeldung abgelehnt — Benutzer oder Passwort falsch")); return; }
+            try {
+                var o = JSON.parse(x.responseText);
+                if (o && o.AccessToken) {
+                    lsSet("jfserver", base);
+                    lsSet("jftoken", o.AccessToken);
+                    lsSet("jfuser", (o.User && o.User.Id) || "");
+                    lsSet("jfname", (o.User && o.User.Name) || user);
+                    /* Auto-Reconnect: Credentials sichern, damit der naechste
+                       App-Start die Verbindung ohne Nachfrage wiederherstellt. */
+                    lsSet("jfauto_pw", pw);
+                    lsSet("jfauto_user", user);
+                    setTimeout(function () { if (typeof jfVodLaden === "function") jfVodLaden(); }, 100);
+                    res(o);
+                } else rej(new Error("Anmeldung abgelehnt"));
+            } catch (e) { rej(new Error("Antwort nicht lesbar")); }
+        };
+        x.onerror = function () { rej(new Error("Server nicht erreichbar")); };
+        x.ontimeout = function () { rej(new Error("Zeitüberschreitung")); };
+        x.send(JSON.stringify({ Username: user, Pw: pw }));
+    });
+}
+
+/* Bibliotheken holen (Filme, Serien). */
+function jfBibliotheken() {
+    return new Promise(function (res, rej) {
+        var base = jfBase(), tok = jfToken(), uid = jfUserId();
+        if (!base || !tok || !uid) { rej(new Error("nicht angemeldet")); return; }
+        var x = new XMLHttpRequest();
+        x.open("GET", base + "/Users/" + uid + "/Views", true);
+        x.setRequestHeader("X-Emby-Token", tok);
+        x.timeout = 10000;
+        x.onload = function () {
+            try { res((JSON.parse(x.responseText) || {}).Items || []); }
+            catch (e) { rej(new Error("Antwort nicht lesbar")); }
+        };
+        x.onerror = function () { rej(new Error("Server nicht erreichbar")); };
+        x.ontimeout = function () { rej(new Error("Zeitüberschreitung")); };
+        x.send();
+    });
+}
+
+function jfAnzeigen() {
+    var panel = document.getElementById("jf-panel");
+    if (!panel) return;
+    panel.classList.remove("hidden");
+    var s = document.getElementById("jf-server"), u = document.getElementById("jf-user"), i = document.getElementById("jf-info");
+    if (s) s.textContent = jfBase() ? jfBase().replace(/^https?:\/\//, "") : "—";
+    if (u) u.textContent = lsGet("jfname", "") || "—";
+    if (i) i.textContent = jfToken() ? "angemeldet" : "nicht angemeldet";
+    if (jfToken()) {
+        jfBibliotheken().then(function (bibs) {
+            var filme = bibs.filter(function (b) { return b.CollectionType === "movies"; });
+            var serien = bibs.filter(function (b) { return b.CollectionType === "tvshows"; });
+            if (i) i.textContent = "angemeldet · " + filme.length + " Film-Bibliothek(e), " + serien.length + " Serien-Bibliothek(e)";
+        }).catch(function (e) { if (i) i.textContent = "angemeldet, Bibliotheken: " + e.message; });
+    }
+}
+
+function jfSuchenUndZeigen() {
+    var i = document.getElementById("jf-info");
+    jfAnzeigen();
+    if (i) i.textContent = "suche im Heimnetz…";
+    jfSuchen().then(function (t) {
+        if (!t.length) { if (i) i.textContent = "kein Jellyfin gefunden — Adresse per QR eintragen"; return; }
+        lsSet("jfserver", t[0].base);
+        if (i) i.textContent = "gefunden: " + (t[0].name || "Jellyfin") + " " + t[0].version;
+        jfAnzeigen();
+    });
+}
+
+/* --------------------- adaptive Menüleiste -------------------------- */
+function tabsAnpassen() {
+    var hatLive = (state.channels && state.channels.length > 0) || !!state.demo;
+    var hatVod = !!(state.vodMovies && state.vodMovies.length);
+    var hatSer = !!(state.seriesShows && state.seriesShows.length);
+    var hatCam = !!(camListe().length);
+    var sicht = {
+        live: hatLive,
+        movies: hatVod,
+        series: hatSer,
+        watch: hatVod || hatSer,
+        epg: hatLive,
+        cam: hatCam,
+        downloads: false            /* auf dem Fernseher gibt es keinen Download */
+    };
+    var tabs = document.querySelectorAll("#main-tabs .tab");
+    var ersterSichtbar = null;
+    for (var i = 0; i < tabs.length; i++) {
+        var key = tabs[i].getAttribute("data-tab");
+        var an = !!sicht[key];
+        tabs[i].classList.toggle("hidden", !an);
+        if (an && !ersterSichtbar) ersterSichtbar = key;
+    }
+    /* Wenn der aktive Tab verschwindet, auf den ersten sichtbaren wechseln. */
+    var aktiv = null;
+    for (var j = 0; j < tabs.length; j++) if (tabs[j].classList.contains("active")) { aktiv = tabs[j].getAttribute("data-tab"); break; }
+    if (aktiv && sicht[aktiv] === false && ersterSichtbar && state.currentView === "view-home") {
+        activateTab(ersterSichtbar);
+    }
+    /* v1.5.52: Demo-Einstieg und Wand-Knopf folgen den Quellen-Schaltern. */
+    if (typeof quellenSchalterAnwenden === "function") quellenSchalterAnwenden();
+    return sicht;
+}
+
+/* --------------------------- Kamera-Liste --------------------------- */
+function renderCamGrid() {
+    var grid = document.getElementById("cam-grid");
+    if (!grid) return;
+    grid.innerHTML = "";
+    var cnt = document.getElementById("cam-count");
+    var alle = camListe();
+    if (cnt) cnt.textContent = Tk("count.cams", { n: alle.length });
+    alle.forEach(function (c, i) {
+        var d = document.createElement("div");
+        d.className = "cam-tile";
+        d.setAttribute("tabindex", "0");
+        d.setAttribute("data-cam-i", String(i));
+        var t = document.createElement("div");
+        t.className = "cam-tile-name";
+        t.textContent = c.name;
+        var s = document.createElement("div");
+        s.className = "cam-tile-sub";
+        s.textContent = (c.lokal ? "PC" : (c.country || "")) + (c.type === "hls" ? " · Live" : "");
+        d.appendChild(t); d.appendChild(s);
+        d.onclick = function () { openCam(i); };
+        grid.appendChild(d);
+    });
+    if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
+}
+
+/* hls.js-Optionen fuer Kameras — EIN Ort fuer Live-Anlauf und Retries
+   (Einzelbild in openCam und die Kacheln der Kamera-Wand nutzen sie beide). */
+function camHlsConfig() {
+    return {
+        liveDurationInfinity: true,
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 700,
+        levelLoadingMaxRetry: 6,
+        fragLoadingMaxRetry: 6
+    };
+}
+
+function openCam(i) {
+    var c = camListe()[i];
+    if (!c) return;
+    var box = document.getElementById("cam-player");
+    var stage = document.getElementById("cam-stage");
+    var tit = document.getElementById("cam-title");
+    if (!box || !stage) return;
+    if (tit) tit.textContent = c.name;
+    stage.innerHTML = "";
+    box.classList.remove("hidden");
+    if (c.type === "hls") {
+        var v = document.createElement("video");
+        v.setAttribute("playsinline", "");
+        v.autoplay = true; v.muted = true; v.controls = false;
+        v.className = "cam-video";
+        stage.appendChild(v);
+        if (typeof Hls !== "undefined" && Hls.isSupported()) {
+            if (state.camHls) { try { state.camHls.destroy(); } catch (e) {} state.camHls = null; }
+            var h = new Hls(camHlsConfig());
+            /* Kamera-Server (go2rtc) liefern beim ersten Abruf oft ein leeres
+               Manifest, weil der Stream erst gestartet wird. Dann mit
+               Cache-Buster erneut laden statt schwarz zu bleiben. */
+            var versuche = 0;
+            h.on(Hls.Events.ERROR, function (evt, data) {
+                if (!data || !data.fatal) return;
+                if (state.camHls !== h) return;
+                /* Media-Fehler (fragParsingError durch Anlauf-Stueckwerk: die
+                   ersten Fragmente eines go2rtc-on-demand-Starts enthalten noch
+                   keinen Keyframe): NICHT neu laden — ein neuer loadSource
+                   erzeugt am Server eine frische Session, deren Anfang wieder
+                   ohne Keyframe kommt. Stattdessen MSE reparieren und das
+                   naechste Fragment abwarten. */
+                if (typeof Hls !== "undefined" && data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    try { h.recoverMediaError(); } catch (e) {}
+                    return;
+                }
+                versuche++;
+                if (versuche > 8) return;
+                setTimeout(function () {
+                    if (state.camHls !== h) return;
+                    try { h.loadSource(c.url + (c.url.indexOf("?") >= 0 ? "&" : "?") + "_r=" + Date.now()); } catch (e) {}
+                }, Math.min(600 * versuche, 4000));
+            });
+            h.loadSource(c.url); h.attachMedia(v); state.camHls = h;
+        } else {
+            v.src = c.url;
+        }
+        var p = v.play(); if (p && p.catch) p.catch(function () {});
+    } else {
+        var img = document.createElement("img");
+        img.className = "cam-img";
+        img.onerror = function () { img.alt = Tk("cam.unreachable"); };
+        img.src = c.url;
+        stage.appendChild(img);
+        if (c.type === "jpg") {
+            state.camTimer = setInterval(function () {
+                img.src = c.url + (c.url.indexOf("?") >= 0 ? "&" : "?") + "_=" + Date.now();
+            }, (c.refresh || 10) * 1000);
+        }
+    }
+    if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
+}
+
+function closeCam() {
+    var box = document.getElementById("cam-player");
+    var stage = document.getElementById("cam-stage");
+    if (state.camHls) { try { state.camHls.destroy(); } catch (e) {} state.camHls = null; }
+    if (state.camTimer) { clearInterval(state.camTimer); state.camTimer = null; }
+    if (stage) stage.innerHTML = "";
+    if (box) box.classList.add("hidden");
+    try { var g = document.getElementById("cam-grid"); if (g) g.focus(); } catch (e) {}
+}
+
+/* =====================================================================
+ *  Kamera-Wand (v1.5.52) — Kiosk-Ansicht wie am Raspberry Pi
+ *
+ *  Raster aus den Firmen-Kameras: Spalten 1-4, je Kamera 1 oder 2 Felder
+ *  (Dual-Lens belegt zwei Felder), ▲ schiebt in der Reihenfolge hoch.
+ *  Layout (Spalten, Breiten, Reihenfolge) liegt PRO PROFIL in
+ *  localStorage: "wand__<profilId>", Startwert Spalten = 3.
+ *
+ *  Optik: schwarzer Grund, KEIN Balken ueber dem Bild — der Name steht als
+ *  kleiner Text (11 px) mit Schatten direkt auf dem Bild, Fokus gold.
+ *  Wiedergabe ueber hls.js (camHlsStarten, dieselben Optionen wie openCam).
+ *  Rueckweg: Knopf links oben UND Zurueck-Taste der Fernbedienung.
+ * ===================================================================== */
+var wand = { spalten: 3, breiten: {}, reihenfolge: [] };
+var wandHlsListe = [];      /* aktive hls.js-Instanzen der Wand */
+var wandTimer = [];         /* gestaffelte Start-Timer und JPEG-Takte */
+
+function camKey(c) { return String((c && (c.id || c.name)) || ""); }
+
+/* Ausgangssprache Deutsch: T() faellt bei fehlender deutscher Tabelle auf
+   Englisch zurueck — in der deutschen Oberflaeche waere das falsch. */
+function wandText(de) { return (state.lang && state.lang !== "de") ? T(de) : de; }
+
+/* Kameras der Wand: Firmen-Kameras. Ohne /api/cameras (Bridge/go2rtc)
+   sind die lokalen Streams die Firmen-Kameras. */
+function wandKameraListe() {
+    if (!quelleFirmen()) return [];
+    if (CAM_FIRMEN.length) return CAM_FIRMEN.slice();
+    return CAM_LOCAL.filter(function (c) { return c && c.lokal; });
+}
+
+function wandLaden() {
+    wand = { spalten: 3, breiten: {}, reihenfolge: [] };
+    var o = lsGet(profileScope("wand"), null);
+    if (!o || typeof o !== "object") return wand;
+    var s = parseInt(o.spalten, 10);
+    if (s >= 1 && s <= 4) wand.spalten = s;
+    if (o.breiten && typeof o.breiten === "object") {
+        Object.keys(o.breiten).forEach(function (k) {
+            if (parseInt(o.breiten[k], 10) === 2) wand.breiten[k] = 2;
+        });
+    }
+    if (Object.prototype.toString.call(o.reihenfolge) === "[object Array]") {
+        wand.reihenfolge = o.reihenfolge.map(function (x) { return String(x); });
+    }
+    return wand;
+}
+
+function wandSpeichern() { lsSet(profileScope("wand"), wand); }
+
+/* Reihenfolge: eigenes Layout zuerst, unbekannte Kameras hinten anhaengen
+   (sonst verschwindet eine neu hinzugefuegte Kamera lautlos). */
+function wandGeordnet() {
+    var liste = wandKameraListe();
+    var pos = {};
+    wand.reihenfolge.forEach(function (id, i) { pos[String(id)] = i; });
+    return liste.slice().sort(function (a, b) {
+        var ia = pos[camKey(a)], ib = pos[camKey(b)];
+        if (ia === undefined) ia = 9999;
+        if (ib === undefined) ib = 9999;
+        return ia - ib;
+    });
+}
+
+/* Zeilen per Greedy ueber die Feldbreiten simulieren — daraus kommt die
+   Kachelhoehe (kein fester Abzug, sonst rutscht die zweite Reihe raus). */
+function wandZeilen(geordnet, spalten) {
+    var belegt = 0, zeilen = 1;
+    geordnet.forEach(function (c) {
+        var b = (wand.breiten[camKey(c)] === 2 && spalten > 1) ? 2 : 1;
+        if (belegt + b > spalten) { zeilen++; belegt = 0; }
+        belegt += b;
+    });
+    return zeilen;
+}
+
+/* Einen Kamera-HLS in ein <video> haengen. Gleiche Fehlerstrategie wie im
+   Einzelbild (openCam): Media-Fehler -> recoverMediaError, sonst
+   Cache-Buster-Neuladen mit begrenzter Zahl. */
+function camHlsStarten(video, url, merken) {
+    if (typeof Hls === "undefined" || !Hls.isSupported()) {
+        video.src = url;
+        var pp = video.play(); if (pp && pp.catch) pp.catch(function () {});
+        return null;
+    }
+    var h = new Hls(camHlsConfig());
+    var versuche = 0, tot = false;
+    h.on(Hls.Events.ERROR, function (evt, data) {
+        if (!data || !data.fatal || tot) return;
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            try { h.recoverMediaError(); } catch (e) {}
+            return;
+        }
+        versuche++;
+        if (versuche > 5) { tot = true; try { h.destroy(); } catch (e) {} return; }
+        setTimeout(function () {
+            if (tot) return;
+            try { h.loadSource(url + (url.indexOf("?") >= 0 ? "&" : "?") + "_r=" + Date.now()); } catch (e) {}
+        }, Math.min(700 * versuche, 3500));
+    });
+    h.loadSource(url);
+    h.attachMedia(video);
+    var p = video.play(); if (p && p.catch) p.catch(function () {});
+    if (merken) merken.push(h);
+    return h;
+}
+
+/* Eine Kachel-Innenflaeche: HLS im <video>, JPEG im Takt. Decoder gestaffelt
+   starten — alle Kacheln gleichzeitig kosten auf dem TV Bilder. */
+function wandKachelStarten(stage, c, i, breite) {
+    if (c.type === "hls") {
+        var v = document.createElement("video");
+        v.setAttribute("playsinline", "");
+        v.autoplay = true; v.muted = true; v.controls = false;
+        v.className = "cam-wall-video";
+        stage.appendChild(v);
+        var anlauf = i * 1300 + (breite > 1 ? 5000 : 0);
+        wandTimer.push(setTimeout(function () { camHlsStarten(v, c.url, wandHlsListe); }, anlauf));
+    } else {
+        var img = document.createElement("img");
+        img.className = "cam-wall-img";
+        img.onerror = function () { img.alt = Tk("cam.unreachable"); };
+        img.src = c.url;
+        stage.appendChild(img);
+        if (c.type === "jpg") {
+            wandTimer.push(setInterval(function () {
+                img.src = c.url + (c.url.indexOf("?") >= 0 ? "&" : "?") + "_=" + Date.now();
+            }, (c.refresh || 60) * 1000));
+        }
+    }
+}
+
+function wandZeichnen() {
+    var grid = document.getElementById("cam-wall-grid");
+    if (!grid) return;
+    wandStopp();
+    grid.innerHTML = "";
+    grid.style.gridTemplateColumns = "repeat(" + wand.spalten + ", 1fr)";
+    var liste = wandGeordnet();
+    var cnt = document.getElementById("cam-wall-count");
+    if (cnt) cnt.textContent = Tk("count.cams", { n: liste.length });
+    var cols = document.querySelectorAll("#cam-wall .wall-col");
+    for (var ci = 0; ci < cols.length; ci++) {
+        var cn = parseInt(cols[ci].getAttribute("data-cols"), 10);
+        cols[ci].classList.toggle("aktiv", cn === wand.spalten);
+    }
+    if (!liste.length) {
+        grid.innerHTML = '<div class="cam-wall-empty">' +
+            esc(wandText("Keine Firmen-Kameras gefunden.")) + "</div>";
+        return;
+    }
+    var zeilen = wandZeilen(liste, wand.spalten);
+    var h = grid.clientHeight || 900;
+    var luecke = 6;
+    var kachelH = Math.max(80, Math.floor((h - luecke * (zeilen - 1)) / zeilen));
+    liste.forEach(function (c, i) {
+        var key = camKey(c);
+        var breite = (wand.breiten[key] === 2 && wand.spalten > 1) ? 2 : 1;
+
+        var d = document.createElement("div");
+        d.className = "cam-wall-tile";
+        d.setAttribute("tabindex", "0");
+        d.setAttribute("data-wand-key", key);
+        d.style.gridColumn = "span " + breite;
+        d.style.height = kachelH + "px";
+
+        var stage = document.createElement("div");
+        stage.className = "cam-wall-stage";
+        d.appendChild(stage);
+        wandKachelStarten(stage, c, i, breite);
+
+        var nm = document.createElement("div");
+        nm.className = "cam-wall-name";
+        nm.textContent = c.name || "";
+        d.appendChild(nm);
+
+        var chips = document.createElement("div");
+        chips.className = "cam-wall-chips";
+        var bW = document.createElement("button");
+        bW.className = "cam-wall-chip";
+        bW.textContent = breite + "F";
+        bW.onclick = function (ev) {
+            if (ev) ev.stopPropagation();
+            wandBreite(key, breite === 2 ? 1 : 2);
+        };
+        var bU = document.createElement("button");
+        bU.className = "cam-wall-chip";
+        bU.textContent = "▲";
+        bU.onclick = function (ev) {
+            if (ev) ev.stopPropagation();
+            wandHoch(key);
+        };
+        chips.appendChild(bW);
+        chips.appendChild(bU);
+        d.appendChild(chips);
+        grid.appendChild(d);
+    });
+}
+
+function wandStopp() {
+    for (var i = 0; i < wandTimer.length; i++) {
+        clearTimeout(wandTimer[i]); clearInterval(wandTimer[i]);
+    }
+    wandTimer = [];
+    for (var j = 0; j < wandHlsListe.length; j++) {
+        try { wandHlsListe[j].destroy(); } catch (e) {}
+    }
+    wandHlsListe = [];
+    /* Serverseitige ffmpeg-Sitzungen freigeben (das Backend hat einen
+       Stopp-Endpunkt) — sonst bleiben Transcode-Plaetze belegt. */
+    var base = camServerUrl();
+    if (base && CAM_FIRMEN.length) {
+        CAM_FIRMEN.forEach(function (c) {
+            http("GET", base + "/api/stream/stop/" + encodeURIComponent(c.id), { timeout: 4000 })
+                .catch(function () {});
+        });
+    }
+}
+
+function wandFokusAuf(key) {
+    var tiles = document.querySelectorAll("#cam-wall-grid .cam-wall-tile");
+    for (var i = 0; i < tiles.length; i++) {
+        if (tiles[i].getAttribute("data-wand-key") === key) {
+            if (window.fokusSetzen) fokusSetzen(tiles[i]);
+            return;
+        }
+    }
+}
+
+/* Eigenes Layout je Kamera: Breite in Feldern und Position in der Reihenfolge.
+   Fokus bleibt auf dem Element, das der Nutzer gerade gedrueckt hat. */
+function wandBreite(key, breite) {
+    if (breite === 2 && wand.spalten < 2) breite = 1;
+    if (breite === 2) wand.breiten[key] = 2; else delete wand.breiten[key];
+    wandSpeichern();
+    wandZeichnen();
+    setTimeout(function () { wandFokusAuf(key); }, 40);
+}
+
+function wandHoch(key) {
+    var ids = wandGeordnet().map(camKey);
+    var i = ids.indexOf(key);
+    if (i <= 0) return;
+    var t = ids[i - 1]; ids[i - 1] = ids[i]; ids[i] = t;
+    wand.reihenfolge = ids;
+    wandSpeichern();
+    wandZeichnen();
+    setTimeout(function () { wandFokusAuf(key); }, 40);
+}
+
+function wandSpalten(n) {
+    n = Math.max(1, Math.min(4, parseInt(n, 10) || 3));
+    wand.spalten = n;
+    wandSpeichern();
+    wandZeichnen();
+    setTimeout(function () {
+        var b = document.querySelector('#cam-wall .wall-col[data-cols="' + n + '"]');
+        if (b && window.fokusSetzen) fokusSetzen(b);
+    }, 40);
+}
+
+/* Fernbedienung: geometrisch naechstes Ziel in der gedrueckten Richtung.
+   Das Raster hat unterschiedlich breite Kacheln (2F) — eine lineare
+   DOM-Reihenfolge fuehrt dort in die falsche Kachel. Gilt fuer die Wand UND
+   das Kamera-Raster im Tab (beide brechen um). */
+function geoNav(scope, key) {
+    var alle = Array.prototype.slice.call(
+        document.querySelectorAll(scope + " [tabindex], " + scope + " button"));
+    alle = alle.filter(function (e) { return e.offsetParent !== null; });
+    if (!alle.length) return true;
+    var ae = document.activeElement;
+    if (alle.indexOf(ae) < 0) {
+        if (window.fokusSetzen) fokusSetzen(alle[0]);
+        return true;
+    }
+    /* Kachel-Bedienung (1F/2F, ▲) liegt IM Bild: RUNTER fuehrt auf die Knoepfe
+       der eigenen Kachel, HOCH von dort zurueck auf die Kachel — sonst waeren
+       die Knoepfe der oberen Reihen per Fernbedienung unerreichbar. LINKS/
+       RECHTS springt direkt zur Nachbarkachel (der eigene 1F-Knopf soll eine
+       Rechts-Bewegung nicht aufhalten). Aus den Knoepfen fuehrt RUNTER in die
+       naechste Reihe. */
+    var aktTile = ae.closest ? ae.closest(".cam-wall-tile") : null;
+    var istChip = !!(ae.classList && ae.classList.contains("cam-wall-chip"));
+    if (aktTile && !istChip && key === 40) {
+        var eigenChip = aktTile.querySelector(".cam-wall-chip");
+        if (eigenChip) {
+            if (window.fokusSetzen) fokusSetzen(eigenChip);
+            return true;
+        }
+    }
+    if (istChip && key === 38 && aktTile) {
+        if (window.fokusSetzen) fokusSetzen(aktTile);
+        return true;
+    }
+    var r = ae.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    var best = null, bestScore = Infinity;
+    for (var i = 0; i < alle.length; i++) {
+        var e = alle[i];
+        if (e === ae) continue;
+        if (aktTile && !istChip && (key === 37 || key === 39)) {
+            var eTile = e.closest ? e.closest(".cam-wall-tile") : null;
+            if (eTile === aktTile) continue;          /* eigene Knoepfe ueberspringen */
+        }
+        /* Aus einem Knopf nach unten in die naechste KACHEL, nicht in deren
+           Knopf — sonst wandert der Fokus von Knopf zu Knopf. */
+        if (istChip && key === 40 && e.classList && e.classList.contains("cam-wall-chip")) continue;
+        var q = e.getBoundingClientRect();
+        var dx = (q.left + q.width / 2) - cx;
+        var dy = (q.top + q.height / 2) - cy;
+        var ok = (key === 38 && dy < -6) || (key === 40 && dy > 6) ||
+                 (key === 37 && dx < -6) || (key === 39 && dx > 6);
+        if (!ok) continue;
+        var score = (key === 38 || key === 40)
+            ? Math.abs(dy) + Math.abs(dx) * 2.5
+            : Math.abs(dx) + Math.abs(dy) * 2.5;
+        if (score < bestScore) { bestScore = score; best = e; }
+    }
+    if (best && window.fokusSetzen) fokusSetzen(best);
+    return true;
+}
+
+function wandNav(key) { return geoNav("#cam-wall", key); }
+
+function wandOeffnen() {
+    if (!quelleFirmen()) return;
+    var box = document.getElementById("cam-wall");
+    if (!box) return;
+    wandLaden();
+    box.classList.remove("hidden");
+    state.camWall = true;
+    wandZeichnen();
+    setTimeout(function () {
+        if (!state.camWall) return;
+        var t = document.querySelector("#cam-wall-grid .cam-wall-tile") ||
+                document.getElementById("btn-wall-back");
+        if (t && window.fokusSetzen) fokusSetzen(t);
+    }, 180);
+    if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
+}
+
+function wandSchliessen() {
+    wandStopp();
+    var box = document.getElementById("cam-wall");
+    if (box) box.classList.add("hidden");
+    state.camWall = false;
+    var g = document.getElementById("cam-grid");
+    if (g) { try { g.focus(); } catch (e) {} }
+}
+
 function onMenuKey() {
     var overlay = document.getElementById("menu-overlay");
     if (overlay && !overlay.classList.contains("hidden")) { closeMenu(); return true; }
@@ -1241,6 +2542,16 @@ function afterUnlock() {
         }).catch(function () { loadAll(); });
     } else {
         document.getElementById("player-id").textContent = state.playerId;
+        try {
+            var dbg = document.getElementById("player-id-source");
+            if (!dbg) {
+                dbg = document.createElement("div");
+                dbg.id = "player-id-source";
+                dbg.style.cssText = "font-size:0.75em;color:#7f92b5;margin-top:6px;letter-spacing:0.3px";
+                document.getElementById("player-id").parentNode.appendChild(dbg);
+            }
+            dbg.textContent = "Quelle: " + (lsGet("player_id_source", "?") || "?") + " · App " + APP_VERSION;
+        } catch (e) {}
         document.getElementById("pairing-pw").textContent = state.pairingPw;
         renderPairQr();
         show("view-pairing");
@@ -1465,6 +2776,7 @@ function loadVod() {
         return xtream(p, "get_vod_streams").then(function (movies) {
             (movies || []).forEach(function (m) { m.categoryName = catNames[m.category_id] || ""; });
             state.vodMovies = movies || [];
+            if (typeof tabsAnpassen === "function") setTimeout(tabsAnpassen, 0);
         });
     });
 }
@@ -1521,6 +2833,11 @@ function xmltvKlassisch(url) {
 function loadXmltv() {
     var p = primaryProvider();
     var url = (p.server_url || "").replace(/\/+$/, "") + "/xmltv.php?username=" + encodeURIComponent(p.username) + "&password=" + encodeURIComponent(p.password);
+    return loadXmltvUrl(url);
+}
+
+/* Beliebiges XMLTV laden (Provider, Panel oder epg.pw im Demo-Modus). */
+function loadXmltvUrl(url) {
     if (typeof Worker === "undefined") return xmltvKlassisch(url);
 
     var jetzt = Date.now();
@@ -1713,6 +3030,7 @@ function renderLiveCategories() {
             renderLiveCategories();
             renderLiveChannels();
             fokusErstenSender();
+            if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
         };
         el.appendChild(favEl);
     }
@@ -1727,11 +3045,13 @@ function renderLiveCategories() {
             state.selectedLiveCat = c.category_id;
             renderLiveCategories(); renderLiveChannels();
             fokusErstenSender();
+            if (state.demo) loadDemoEpg();
         };
         d.ondblclick = function (ev) { ev.stopPropagation(); openCatMenu("live", c, 0); };
         d.tabIndex = 0;
         el.appendChild(d);
     });
+    if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
 }
 
 /* =====================================================================
@@ -1800,7 +3120,9 @@ function renderLiveChannels() {
 
     var shown = computeVisibleChannels();
     var cnt = document.getElementById("live-count");
-    if (cnt) cnt.textContent = (state.liveQuery || "").trim() ? (shown.length + " Treffer") : (shown.length + " Sender");
+    if (cnt) cnt.textContent = (state.liveQuery || "").trim()
+        ? Tk("count.results", { n: shown.length })
+        : (state.demo ? Tk("head.demo", { n: shown.length }) : Tk("count.channels", { n: shown.length }));
 
     el.innerHTML = "";
     var behaelter = document.createElement("div");
@@ -1830,7 +3152,7 @@ function renderLiveChannels() {
             stueck.push('<div class="ch" tabindex="0" data-ch-id="' + esc(c.stream_id) + '"' +
                 ' style="position:absolute;top:' + (z * CH_ZEILEN_H) + 'px;left:0;right:8px">' +
                 '<div class="ch-name">' + esc(num + c.name) + fav + lock + '</div>' +
-                '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : "Keine EPG-Daten") + '</div></div>');
+                '<div class="ch-epg">' + (nn && nn.now ? epgLine(nn.now, nn.next) : (state.demo ? "" : "Keine EPG-Daten")) + '</div></div>');
         }
         behaelter.innerHTML = stueck.join("");
         if (aktivSid) {
@@ -1885,6 +3207,7 @@ function renderLiveChannels() {
         var f = behaelter.querySelector('.ch[data-ch-id="' + vorherSid + '"]');
         if (f) { try { f.focus(); } catch (e) {} }
     }
+    if (typeof i18nApply === "function" && state.lang) setTimeout(i18nApply, 0);
 }
 
 /* Vertikal-Navigation der Senderliste ueber den Daten-Index - analog
@@ -2361,8 +3684,15 @@ function openSeriesDetail(serie) {
     };
 
     var p = primaryProvider();
-    xtream(p, "get_series_info", { series_id: serie.series_id }).then(function (info) {
+    var infos = (serie.__jf || lineSerieZu(serie))
+        ? episodenBeiderQuellen(serie)
+        : xtream(p, "get_series_info", { series_id: serie.series_id });
+    infos.then(function (info) {
         var episodes = (info && info.episodes) || {};
+        if (info && info.ergaenzt) {
+            var h = document.getElementById("sd-watch-hint");
+            if (h) h.textContent = "+" + info.ergaenzt + " Folge(n) aus der TV-Line";
+        }
         var seasonKeys = Object.keys(episodes).sort(function (a, b) { return (parseInt(a) || 0) - (parseInt(b) || 0); });
         var box = document.getElementById("sd-seasons");
         box.innerHTML = "";
@@ -2377,7 +3707,8 @@ function openSeriesDetail(serie) {
                 row.className = "episode";
                 row.tabIndex = 0;   /* 1.5.9: Episoden per Steuerkreuz */
                 row.innerHTML = '<span class="ep-num">S' + sk + 'E' + (ep.episode_num || "-") + '</span>' +
-                    '<span class="ep-title">' + esc(ep.title || ("Episode " + ep.episode_num)) + '</span><span class="ep-play">▶</span>';
+                    '<span class="ep-title">' + esc(ep.title || ("Episode " + ep.episode_num)) + '</span>' +
+                    (ep.__xt ? '<span class="ep-src">IPTV</span>' : '') + '<span class="ep-play">▶</span>';
                 row.onclick = function () {
                     var ext = ep.container_extension || "mp4";
                     playVod(seriesUrl(ep.id, ext), (serie.name + " S" + sk + "E" + ep.episode_num), "vod:series:" + ep.id, 0);
@@ -2581,7 +3912,7 @@ function playLive(ch) {
 
 function playLiveNoGate(ch) {
     zapPrefetchAbort();   /* laufenden Warm-Up-Request sauber schliessen */
-    state.currentPlayback = { url: liveUrl(ch.stream_id, ch.__pi || 0), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
+    state.currentPlayback = { url: (ch.__demoUrl || liveUrl(ch.stream_id, ch.__pi || 0)), title: ch.name, kind: "live", channelId: ch.stream_id, channel: ch };
     startPlayback();
     markWatched(ch.stream_id);
 }
@@ -3236,7 +4567,7 @@ function pvStart(sid) {
     document.getElementById("pv-title").textContent = ch.name || "";
     document.getElementById("pv-epg").textContent = "Vorschau wird vorbereitet…";
     document.getElementById("pv-progress").style.width = "0%";
-    v.src = liveUrl(ch.stream_id, primaryProvider());
+    v.src = ch.__demoUrl || liveUrl(ch.stream_id, primaryProvider());
     v.muted = true;
     var p = v.play(); if (p && p.catch) p.catch(function () {});
     var t0 = Date.now();
@@ -3530,12 +4861,14 @@ function openTrailer(ytId, zurueckTab) {
 
 function activateTab(tab) {
     document.querySelectorAll(".tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === tab); });
-    var panes = ["live", "movies", "series", "watch", "epg", "downloads"];
+    var panes = ["live", "movies", "series", "watch", "epg", "downloads", "cam"];
     panes.forEach(function (p) {
         document.getElementById("pane-" + p).classList.toggle("hidden", p !== tab);
     });
     pvStop();
     state.tab = tab;
+    if (tab === "cam") renderCamGrid();
+    if (typeof tabsAnpassen === "function") setTimeout(tabsAnpassen, 0);
     /* WICHTIG: state.vodMovies startet als [] - und ![] ist in JS false.
        Die Bedingung "!state.vodMovies" war deshalb nie erfuellt und
        loadVod() wurde beim Tab-Wechsel NIE gerufen: Filme und Serien
@@ -3597,8 +4930,189 @@ function renderDownloads() {
  *  Settings
  * ===================================================================== */
 
+/* =====================================================================
+ *  v1.5.20: Eingabe am Handy — lokaler Server auf dem TV + QR-Code
+ *  Der Server (qrweb/server.js, Node) laeuft im Heimnetz auf :8080 und
+ *  nimmt Suchbegriff, Playlist- und EPG-Adressen sowie Freitext an.
+ *  Die App liest die Eingaben ueber 127.0.0.1 ab — nichts verlaesst das
+ *  Heimnetz, keine Daten gehen ins Internet.
+ * ===================================================================== */
+function qrwebEin() { return lsGet("qrweb", "aus") === "ein"; }
+
+function qrwebHinweis(txt) {
+    var st = document.getElementById("qrweb-status");
+    if (st && txt) st.textContent = txt;
+    var pm = document.getElementById("pair-msg");
+    if (pm) pm.textContent = txt || "";
+}
+
+/* LAN-Adresse des TVs über die luna-Connection-API. */
+function qrwebIp(cb) {
+    if (state.qrIp) { cb(state.qrIp); return; }
+    var fertig = false;
+    function ja(ip) { if (fertig) return; fertig = true; if (ip) state.qrIp = ip; cb(ip || ""); }
+    try {
+        var req = (window.webOS && window.webOS.service && window.webOS.service.request) || null;
+        if (!req) { ja(""); return; }
+        req("luna://com.webos.service.connectionmanager", {
+            method: "getStatus", parameters: {}, timeout: 4000,
+            onSuccess: function (r) {
+                var w = (r && r.wired) || {}, f = (r && r.wifi) || {};
+                ja(w.ipAddress || f.ipAddress || "");
+            },
+            onFailure: function () { ja(""); },
+            onComplete: function () {}
+        });
+    } catch (e) { ja(""); }
+}
+
+/* QR als HTML-Tabelle — genau der Weg, den auch die Kopplungsseite nutzt. */
+function qrwebQr(url, box) {
+    if (!box || typeof qrcode !== "function") return;
+    var qr = null, v;
+    for (v = 1; v <= 40; v++) {
+        try { var q = qrcode(v, "M"); q.addData(url); q.make(); qr = q; break; } catch (e) {}
+    }
+    box.innerHTML = "";
+    if (!qr) return;
+    try {
+        var n = qr.getModuleCount(), cell = 5, r, c, td, tr;
+        var tbl = document.createElement("table");
+        tbl.style.borderCollapse = "collapse";
+        for (r = 0; r < n; r++) {
+            tr = document.createElement("tr");
+            for (c = 0; c < n; c++) {
+                td = document.createElement("td");
+                td.style.width = cell + "px";
+                td.style.height = cell + "px";
+                td.style.border = "none";
+                td.style.background = qr.isDark(r, c) ? "#0B0E14" : "#FFFFFF";
+                tr.appendChild(td);
+            }
+            tbl.appendChild(tr);
+        }
+        box.appendChild(tbl);
+    } catch (e) { /* still */ }
+}
+
+function qrwebAnzeigen() {
+    var panel = document.getElementById("qrweb-panel");
+    var box = document.getElementById("qrweb-box");
+    var urlEl = document.getElementById("qrweb-url");
+    if (!panel || !box) return;
+    if (!qrwebEin()) { panel.classList.add("hidden"); box.innerHTML = ""; return; }
+    qrwebIp(function (ip) {
+        if (!ip) {
+            panel.classList.remove("hidden");
+            if (urlEl) urlEl.textContent = "Keine Netzwerkadresse — Server läuft nur im Heimnetz";
+            return;
+        }
+        var u = "http://" + ip + ":8080/";
+        panel.classList.remove("hidden");
+        if (urlEl) urlEl.textContent = u;
+        qrwebQr(u, box);
+    });
+}
+
+/* Eingaben vom Handy abholen (nur wenn der Schalter an ist). */
+function qrwebPoll() {
+    if (state.qrPoll) return;
+    state.qrPoll = setInterval(function () {
+        if (!qrwebEin()) return;
+        try {
+            var x = new XMLHttpRequest();
+            x.open("GET", "http://127.0.0.1:8080/get", true);
+            x.timeout = 2000;
+            x.onload = function () {
+                if (x.status !== 200) return;
+                var d = null;
+                try { d = JSON.parse(x.responseText); } catch (e) { return; }
+                if (!d || !d.ts || d.ts === state.qrLetzteTs) return;
+                state.qrLetzteTs = d.ts;
+                qrwebUebernehmen(d);
+            };
+            x.send();
+        } catch (e) { /* Server aus */ }
+    }, 2000);
+}
+
+function qrwebUebernehmen(d) {
+    if (d.ziel === "search" && d.search) {
+        var el = document.getElementById("live-search");
+        if (el) el.value = d.search;
+        state.liveQuery = d.search;
+        show("view-home");
+        renderLiveCategories();
+        renderLiveChannels();
+        qrwebHinweis(Tk("msg.search_from_phone", { q: d.search }));
+        return;
+    }
+    if (d.ziel === "epg" && d.epg) {
+        lsSet("epgurl", d.epg);
+        qrwebHinweis("EPG-Adresse gespeichert");
+        return;
+    }
+    if (d.ziel === "playlist" && d.url) {
+        lsSet("m3uurl", d.url);
+        qrwebHinweis("Playlist-Adresse übernommen — Einstellungen → Leitung");
+        return;
+    }
+    if (d.ziel === "text" && d.text) {
+        qrwebHinweis(d.text.slice(0, 180));
+        return;
+    }
+}
+
+function qrwebUmschalten() {
+    var neu = qrwebEin() ? "aus" : "ein";
+    lsSet("qrweb", neu);
+    if (neu === "ein") qrwebPoll();
+    renderSettings();
+    qrwebAnzeigen();
+}
+
+
+/* ---------------------------------------------------------------------
+ *  Sprachwaehler (v1.5.25): Liste ueber den Einstellungen, damit man bei
+ *  38 Sprachen nicht durchklicken muss.
+ * ------------------------------------------------------------------- */
+function sprachPickerOeffnen() {
+    var alt = document.getElementById("lang-picker");
+    if (alt) alt.parentNode.removeChild(alt);
+    var box = document.createElement("div");
+    box.id = "lang-picker";
+    var h = document.createElement("h3");
+    h.textContent = T("Sprache");
+    box.appendChild(h);
+    var grid = document.createElement("div");
+    grid.className = "lp-grid";
+    I18N_SPRACHEN.forEach(function (s) {
+        var d = document.createElement("div");
+        d.className = "lp-item" + (s.code === state.lang ? " active" : "");
+        d.textContent = s.name + (s.rtl ? "  ‏" : "");
+        d.setAttribute("tabindex", "0");
+        d.onclick = function () {
+            i18nSetzen(s.code);
+            box.parentNode.removeChild(box);
+            renderSettings();
+        };
+        grid.appendChild(d);
+    });
+    box.appendChild(grid);
+    document.body.appendChild(box);
+    var erstes = box.querySelector(".lp-item.active") || box.querySelector(".lp-item");
+    if (erstes) try { erstes.focus(); } catch (e) {}
+}
+
+function sprachPickerSchliessen() {
+    var b = document.getElementById("lang-picker");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+    return !!b;
+}
+
 function renderSettings() {
     show("view-settings");
+    setTimeout(function () { qrwebAnzeigen(); }, 60);
     var enabled = pinEnabled();
     document.getElementById("pin-status").textContent = enabled ? "An" : "Aus";
     document.getElementById("pin-status").style.color = enabled ? "#6FCF9F" : "#8FA3C8";
@@ -3613,6 +5127,25 @@ function renderSettings() {
     if (pvEl) {
         pvEl.textContent = vorschauEin() ? "Ein" : "Aus";
         pvEl.style.color = vorschauEin() ? "#6FCF9F" : "#8FA3C8";
+    }
+    setTimeout(function () { if (typeof i18nApply === "function") i18nApply(); }, 40);
+    var jfEl = document.getElementById("jf-status");
+    if (jfEl) {
+        jfEl.textContent = jfToken() ? (lsGet("jfname", "") || "OK") : T("Aus");
+        jfEl.style.color = jfToken() ? "#6FCF9F" : "#8FA3C8";
+    }
+    var csEl = document.getElementById("camserver-status");
+    if (csEl) {
+        var su = camServerUrl();
+        csEl.textContent = su ? su.replace(/^https?:\/\//, "") : T("Aus");
+        csEl.style.color = su ? "#6FCF9F" : "#8FA3C8";
+    }
+    var lnEl = document.getElementById("lang-status");
+    if (lnEl) lnEl.textContent = i18nName(state.lang || "de");
+    var qwEl = document.getElementById("qrweb-status");
+    if (qwEl) {
+        qwEl.textContent = qrwebEin() ? "Ein" : "Aus";
+        qwEl.style.color = qrwebEin() ? "#6FCF9F" : "#8FA3C8";
     }
     var imEl = document.getElementById("imdb-status");
     if (imEl) {
@@ -3635,6 +5168,18 @@ function renderSettings() {
     var prof = state.activeProfile || "default";
     document.getElementById("about-status").textContent =
         "Smartys Player " + APP_VERSION + " (webOS) · Profil " + prof;
+
+    /* v1.5.52: Quellen-Schalter — Status der drei Kamera-/Stream-Quellen */
+    var qPaare = [["src-firmen-status", quelleFirmen()], ["src-frei-status", quelleFrei()],
+                  ["src-streams-status", quelleStreams()]];
+    qPaare.forEach(function (p) {
+        var el = document.getElementById(p[0]);
+        if (!el) return;
+        /* Deutsch schreiben, i18nApply (weiter unten, 40 ms) uebersetzt es. */
+        el.textContent = p[1] ? "Ein" : "Aus";
+        el.style.color = p[1] ? "#6FCF9F" : "#8FA3C8";
+    });
+    if (typeof quellenSchalterAnwenden === "function") quellenSchalterAnwenden();
 
     /* Leitung: nur die aktive wird geladen */
     var provs = state.providers || [];
@@ -3923,7 +5468,7 @@ function zapPrefetch(sid) {
         setTimeout(function () {
             if (zapVor.xhr === x) { try { x.abort(); } catch (e) {} zapVor.xhr = null; }
         }, 6000);
-        try { x.open("GET", liveUrl(ch.stream_id, ch.__pi || 0)); x.send(); } catch (e) {}
+        try { x.open("GET", ch.__demoUrl || liveUrl(ch.stream_id, ch.__pi || 0)); x.send(); } catch (e) {}
     }, 220);
 }
 
@@ -3942,9 +5487,83 @@ function init() {
     /* Identität EINMAL asynchron ermitteln (Plattform-APIs) — der komplette
      * App-Start (startFlow und damit alle Views) hängt daran, damit Pairing-
      * Anzeige/QR und die AAD-gebundene Entschlüsselung nie eine leere ID sehen. */
-    ensureIdentity().then(startFlow);
+    state.lang = lsGet("lang", "") || (typeof i18nErkennen === "function" ? i18nErkennen() : "de");
+    try { document.documentElement.setAttribute("lang", state.lang); } catch (e) {}
+    if (typeof i18nApply === "function") setTimeout(i18nApply, 30);
+    ensureIdentity().then(function () {
+        startFlow();
+        /* Jellyfin-Auto-Reconnect: wenn Token weg (z.B. harter Neustart),
+           mit gesicherten Zugangsdaten leise neu anmelden. */
+        setTimeout(function () {
+            try {
+                if (jfToken()) return;
+                var base = jfBase();
+                var user = lsGet("jfauto_user", "") || lsGet("jfname", "");
+                var pw = lsGet("jfauto_pw", "");
+                if (!base || !user || !pw) return;
+                jfAnmelden(base, user, pw).catch(function () {});
+            } catch (e) {}
+        }, 2500);
+    });
 
     document.getElementById("btn-pair").onclick = doPair;
+    var __lnBtn = document.getElementById("btn-lang");
+    if (__lnBtn) __lnBtn.onclick = sprachPickerOeffnen;
+    var __jfScan = document.getElementById("btn-jfscan");
+    if (__jfScan) __jfScan.onclick = jfSuchenUndZeigen;
+    var __jfLogin = document.getElementById("btn-jflogin");
+    if (__jfLogin) __jfLogin.onclick = function () { jfAnzeigen(); };
+    var __jfQr = document.getElementById("btn-jf-qr");
+    if (__jfQr) __jfQr.onclick = function () {
+        lsSet("qrweb", "ein"); qrwebPoll(); jfAnzeigen();
+        qrwebAnzeigen();
+        qrwebHinweis("Jellyfin: Benutzer und Passwort am Handy eingeben");
+    };
+    var __jfAus = document.getElementById("btn-jf-abmelden");
+    if (__jfAus) __jfAus.onclick = function () {
+        lsSet("jftoken", ""); lsSet("jfuser", ""); lsSet("jfname", "");
+        jfAnzeigen();
+    };
+    var __csScan = document.getElementById("btn-camscan");
+    if (__csScan) __csScan.onclick = camServerSuchen;
+    var __csBtn = document.getElementById("btn-camserver");
+    if (__csBtn) __csBtn.onclick = function () {
+        lsSet("qrweb", "ein");
+        qrwebPoll();
+        renderSettings();
+        qrwebAnzeigen();
+        qrwebHinweis(T("Am Handy öffnen — Suchbegriffe, Playlist- und EPG-Adressen tippen:"));
+    };
+    var __qwBtn = document.getElementById("btn-qrweb");
+    if (__qwBtn) __qwBtn.onclick = qrwebUmschalten;
+    if (qrwebEin()) { qrwebPoll(); }
+    var __btnDemo = document.getElementById("btn-demo");
+    if (__btnDemo) __btnDemo.onclick = startDemo;
+
+    /* v1.5.52: Quellen-Schalter in den Einstellungen */
+    [["btn-src-firmen", "src_firmen"], ["btn-src-frei", "src_frei"],
+     ["btn-src-streams", "src_streams"]].forEach(function (p) {
+        var b = document.getElementById(p[0]);
+        if (b) b.onclick = function () { quelleUmschalten(p[1]); };
+    });
+
+    /* v1.5.52: Kamera-Wand — Knopf im Kamera-Tab, Knopf und
+       Zurueck-Taste als Rueckweg, Spalten 1-4 in der Kopfzeile. */
+    var __wallBtn = document.getElementById("btn-cam-wall");
+    if (__wallBtn) __wallBtn.onclick = wandOeffnen;
+    var __wallBack = document.getElementById("btn-wall-back");
+    if (__wallBack) __wallBack.onclick = wandSchliessen;
+    document.querySelectorAll("#cam-wall .wall-col").forEach(function (b) {
+        b.onclick = function () { wandSpalten(b.getAttribute("data-cols")); };
+    });
+    quellenSchalterAnwenden();
+    /* Kachelhoehe haengt am Restplatz — bei Groessenaenderung neu rechnen. */
+    var __wandResize = null;
+    window.addEventListener("resize", function () {
+        if (!state.camWall) return;
+        clearTimeout(__wandResize);
+        __wandResize = setTimeout(function () { if (state.camWall) wandZeichnen(); }, 400);
+    });
 
     // v1.1.0: Sicherheits-PW Unlock
     document.getElementById("btn-unlock").onclick = doUnlock;
@@ -4151,12 +5770,33 @@ function init() {
     document.querySelectorAll(".tab").forEach(function (t) {
         t.onclick = function () { activateTab(t.dataset.tab); };
     });
+    var __camClose = document.getElementById("btn-cam-close");
+    if (__camClose) __camClose.onclick = closeCam;
+    if (typeof tabsAnpassen === "function") setTimeout(tabsAnpassen, 300);
 
     // webOS-Fernbedienung: Back-Taste (10009/461/27) — Overlay wird zuerst geschlossen
     document.addEventListener("keydown", function (e) {
         var isBack = e.keyCode === 10009 || e.keyCode === 461 || e.keyCode === 27 ||
             (e.key === "Backspace" && state.currentView === "view-player");
         if (isBack) {
+            /* 1.5.52: die Kamera-Wand liegt als Vollbild ueber allem —
+               Zurueck-Taste schliesst sie zuerst. */
+            if (state.camWall) {
+                try { e.preventDefault(); } catch (err) {}
+                wandSchliessen();
+                return;
+            }
+            /* v1.5.25: offener Sprachwaehler hat Vorrang */
+            var __camBox = document.getElementById("cam-player");
+            if (__camBox && !__camBox.classList.contains("hidden")) {
+                try { e.preventDefault(); } catch (err) {}
+                closeCam();
+                return;
+            }
+            if (typeof sprachPickerSchliessen === "function" && sprachPickerSchliessen()) {
+                try { e.preventDefault(); } catch (err) {}
+                return;
+            }
             if (document.getElementById("menu-overlay") && !document.getElementById("menu-overlay").classList.contains("hidden")) {
                 closeMenu(); e.preventDefault(); return;
             }
@@ -4258,6 +5898,7 @@ function init() {
         if (el.closest(".sidebar")) return "vcats";
         if (el.closest(".grid")) return "grid";
         if (el.closest("#epg-grid")) return "epg";
+        if (el.closest("#pane-cam")) return "cam";
         return null;
     }
 
@@ -4271,6 +5912,7 @@ function init() {
             vcats: ".pane:not(.hidden) .sidebar .cat",
             grid: ".pane:not(.hidden) .grid-item",
             epg: "#epg-grid .epg-prog",
+            cam: "#pane-cam .btn-ghost:not(.hidden), #pane-cam .cam-tile",
             settings: "#view-settings .btn-ghost:not(.hidden), #view-settings .btn-primary:not(.hidden), #view-settings .settings-btn:not(.hidden)",
             detail: "#view-movie-detail:not(.hidden) .detail-panel button, #view-series-detail:not(.hidden) .detail-layout button, #view-series-detail:not(.hidden) .episode",
             menu: ".menu-overlay:not(.hidden) .menu-btn, .menu-overlay:not(.hidden) .menu-item, .menu-overlay:not(.hidden) input"
@@ -4323,12 +5965,14 @@ function init() {
         if (gruppe0 === "tabs" || gruppe0 === "topbar") {
             if (gruppe0 === "topbar" && delta < 0) delta = -1;
             var ziel0 = gruppe0 === "topbar" ? "tabs"
+                : (state.tab === "cam") ? "cam"
                 : (state.tab === "live" || !state.tab) ? "cats" : "vcats";
             var l0 = fokusListe(ziel0);
             if (l0.length) { fokusSetzen(delta < 0 && gruppe0 === "topbar" ? l0[0] : l0[0]); return true; }
             return true;
         }
         if (gruppe0 === "chans") return navChans(delta);
+        if (gruppe0 === "cam") return geoNav("#pane-cam", delta < 0 ? 38 : 40);
         if (gruppe0 === "grid") return navGrid(state.tab === "series" ? "series" : "movies", delta, true);
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
@@ -4434,6 +6078,7 @@ function init() {
     window.navHorizontal = function (delta) {
         var gruppe0 = fokusGruppe(document.activeElement);
         if (gruppe0 === "epg") return navEpg(delta, false);
+        if (gruppe0 === "cam") return geoNav("#pane-cam", delta < 0 ? 37 : 39);
         /* 1.5.1: In der TAB-Zeile muss links/rechts die TABS wechseln
            (Seitenwechsel am Steuerkreuz), nicht in die Spalten springen.
            Erst am Zeilenrand wandert der Fokus in die Spalten daneben. */
@@ -4496,6 +6141,7 @@ function init() {
         var el = document.activeElement;
         var gruppe = fokusGruppe(el);
         var reihenfolge = gruppe === "menu" ? ["menu"]
+            : (state.tab === "cam") ? ["tabs", "cam"]
             : (state.tab === "live" || !state.tab) ? ["tabs", "cats", "chans"]
             : ["tabs", "vcats", "grid"];
         if (gruppe === "topbar") reihenfolge = ["tabs", "topbar"];
@@ -4512,6 +6158,17 @@ function init() {
     }
 
     document.addEventListener("keydown", function (e) {
+        /* 1.5.52: Die Kamera-Wand ist eine eigene Vollbild-Ansicht — sie hat
+           ihre eigene Fokus-Navigation (geometrisch, wegen der 2F-Kacheln).
+           Sonst greift hier die Spalten-Navigation der Home-Ansicht. */
+        if (state.camWall) {
+            var kw = e.keyCode;
+            if (kw === 37 || kw === 38 || kw === 39 || kw === 40) {
+                e.preventDefault();
+                wandNav(kw);
+            }
+            return;
+        }
         /* 1.5.17: im Film-/Serien-Player spulen die Pfeiltasten:
            LEFT = 10 s zurueck, RIGHT = 10 s vor. Live-TV bewusst ausgenommen
            (keine feste Dauer). */

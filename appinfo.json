@@ -1,6 +1,6 @@
 {
-  "id": "com.smartys.iptv",
-  "version": "1.5.17",
+  "id": "com.smartys.tech",
+  "version": "1.5.52",
   "vendor": "Smartys",
   "type": "web",
   "main": "index.html",
@@ -9,8 +9,17 @@
   "largeIcon": "icon-large.png",
   "iconColor": "#0B0E14",
   "resolution": "1920x1080",
-  "screenSaverProperties": {"preferredType": 2},
+  "screenSaverProperties": {
+    "preferredType": 2
+  },
   "bgColor": "#0B0E14",
   "disableBackHistoryAPI": true,
-  "allowVideoCapture": false
+  "allowVideoCapture": false,
+  "splashBackground": "splash.png",
+  "requiredPermissions": [
+    "networking",
+    "network.query",
+    "network.connection",
+    "time.query"
+  ]
 }

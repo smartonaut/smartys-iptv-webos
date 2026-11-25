@@ -380,6 +380,26 @@
         })(0);
     }
 
+    /* webOS 6.5.3 kennt keinen nduid-Key; die Seriennummer ist dagegen
+     * verlässlich lesbar (getSystemInfo) und geräteeindeutig. */
+    function webosSerial(cb) {
+        lunaCall("luna://com.webos.service.tv.systemproperty", "getSystemInfo",
+                 { keys: ["serialNumber", "modelName"] }, 1800, function (res) {
+            var sn = res ? cleanId(res.serialNumber || deepFindString(res, "serialNumber")) : null;
+            cb(sn);
+        });
+    }
+
+    function webosUebernahme() {
+        if (detectPlatform() !== "webos") return Promise.resolve(null);
+        return new Promise(function (resolve) {
+            webosSerial(function (sn) {
+                var e = sn && UEBERNAHMEN[sn];
+                resolve(e ? e : null);
+            });
+        });
+    }
+
     function webosModel() {
         var di = webosDeviceInfo();
         if (!di) return null;
@@ -403,23 +423,52 @@
         if (plat === "webos") {
             return new Promise(function (resolve) {
                 webosNduid(function (nduid) {
-                    var parts = [];
-                    if (nduid) parts.push("nduid=" + nduid);
-                    var model = webosModel();
-                    if (model) parts.push("model=" + model);
-                    resolve(parts.join("|"));
+                    if (nduid) {
+                        var p1 = ["nduid=" + nduid];
+                        var m1 = webosModel();
+                        if (m1) p1.push("model=" + m1);
+                        resolve(p1.join("|"));
+                        return;
+                    }
+                    /* Kein nduid (Normalfall ab webOS 6): Seriennummer nehmen. */
+                    webosSerial(function (sn) {
+                        var parts = [];
+                        if (sn) parts.push("serial=" + sn);
+                        var model = webosModel();
+                        if (model) parts.push("model=" + model);
+                        resolve(parts.join("|"));
+                    });
                 });
             });
         }
         return Promise.resolve("");
     }
 
+    /* ------------------------------------------------------------------
+     *  Übernahme bestehender Player-IDs
+     *  Warum: Auf webOS gibt es keinen Dateispeicher, `nduid` fehlt ab
+     *  webOS 6, und nach dem Rooten/Neuinstallieren ist der localStorage
+     *  weg. Die einmalig erzeugte ID ist damit verloren — die Line im
+     *  Panel hängt aber per AES-GCM-AAD an genau dieser ID.
+     *  Deshalb: wer eine bestehende ID behalten MUSS, wird hier über die
+     *  Geräte-Seriennummer zugeordnet. Das greift NUR, solange nichts
+     *  gespeichert ist, und hat Vorrang vor der Ableitung — die Ableitung
+     *  bleibt für alle anderen Geräte zuständig.
+     *  Pflege: "SERIENNUMMER": "BESTEHENDE-ID"
+     * ------------------------------------------------------------------ */
+    var UEBERNAHMEN = {
+        /* Seriennummer: { id: bestehende Player-ID, pw: zugehöriges Pairing-Passwort } */
+        /* GERAETE-SPEZIFISCH - im oeffentlichen Repo absichtlich leer.
+         * Geraete-Builds setzen die Werte lokal (js/geraet.js, nicht versioniert). */
+    };
+
     /* Ein Seed ohne geräteeindeutiges Merkmal (duid/nduid) darf NICHT abgeleitet
      * werden: model-only kollidierte zwischen allen Geräten desselben Modells. */
     function seedHasUniquePart(seed) {
         return typeof seed === "string" &&
             (seed.indexOf("duid=") === 0 || seed.indexOf("|duid=") !== -1 ||
-             seed.indexOf("nduid=") === 0 || seed.indexOf("|nduid=") !== -1);
+             seed.indexOf("nduid=") === 0 || seed.indexOf("|nduid=") !== -1 ||
+             seed.indexOf("serial=") === 0 || seed.indexOf("|serial=") !== -1);
     }
 
     /* ------------------------------------------------------------------
@@ -528,7 +577,39 @@
      *  eine ANDERE ID (Spiegel = Gedächtnis, kein Cache).
      * ------------------------------------------------------------------ */
 
+    /* ------------------------------------------------------------------
+     *  Öffentlicher Einstieg. Die Übernahme-Tabelle hat Vorrang — AUCH
+     *  gegen eine bereits gespeicherte ID. Grund: nach einem Wipe erzeugt
+     *  die App eine Zufalls-ID und speichert sie; ohne diesen Vorrang
+     *  bliebe die falsche ID für immer stehen, weil Stufe 1 („gespeicherte
+     *  ID unantastbar") sie schützt. Die Tabelle ist die Wahrheit für die
+     *  dort eingetragenen Geräte (ID + Pairing-Passwort kommen aus dem
+     *  Panel und sind die einzigen, an denen die Line hängt).
+     * ------------------------------------------------------------------ */
     function resolveIdentity(opts) {
+        var get = function (k) { try { return opts.get(k); } catch (e) { return null; } };
+        var set = function (k, v) { try { opts.set(k, v); } catch (e) { /* voll/gesperrt */ } };
+        /* 1) Geräte-Build: fest eingetragene ID gewinnt immer. */
+        var g = root.SMARTYS_GERAET;
+        if (g && g.id) {
+            if (get("player_id") !== g.id) { set("player_id", g.id); set("player_id_source", "geraet"); }
+            if (g.pw && get("pairing_pw") !== g.pw) set("pairing_pw", g.pw);
+            return aufloesen(opts);
+        }
+        /* 2) Seriennummern-Tabelle (nur wo getSystemInfo erlaubt ist). */
+        return webosUebernahme().then(function (u) {
+            if (u) {
+                if (get("player_id") !== u.id) {
+                    set("player_id", u.id);
+                    set("player_id_source", "uebernahme");
+                }
+                if (u.pw && get("pairing_pw") !== u.pw) set("pairing_pw", u.pw);
+            }
+            return aufloesen(opts);
+        });
+    }
+
+    function aufloesen(opts) {
         var get = function (k) { try { return opts.get(k); } catch (e) { return null; } };
         var set = function (k, v) { try { opts.set(k, v); } catch (e) { /* voll/gesperrt */ } };
 
@@ -545,7 +626,13 @@
                     return { id: m.player_id, source: "mirror", isNew: true,
                              pwFromMirror: (!get("pairing_pw") && m.pairing_pw) ? m.pairing_pw : null };
                 }
-                return deviceSeed().then(function (seed) {
+                /* Übernahme-Tabelle: Seriennummer prüfen, bevor abgeleitet wird. */
+                return webosUebernahme().then(function (ueber) {
+                    if (ueber) {
+                        return { id: ueber.id, source: "uebernahme", isNew: true,
+                                 pwFromUebernahme: ueber.pw || null };
+                    }
+                    return deviceSeed().then(function (seed) {
                     if (seedHasUniquePart(seed)) {
                         /* Stufe 3: deterministisch aus Hardware-Merkmalen */
                         return derivePlayerId(seed).then(function (id) {
@@ -554,6 +641,7 @@
                     }
                     /* Stufe 4: Zufall — wie bisherige App-Versionen */
                     return { id: randomPlayerId(), source: "random", isNew: true };
+                    });
                 });
             });
         }
@@ -562,11 +650,11 @@
             if (!get("player_id")) set("player_id", r.id);
             if (r.isNew && r.source) set("player_id_source", r.source);
 
-            var pw = get("pairing_pw") || r.pwFromMirror || null;
+            var pw = get("pairing_pw") || r.pwFromMirror || r.pwFromUebernahme || null;
             if (!pw) {
                 pw = genPairingPw();
                 set("pairing_pw", pw);
-            } else if (r.pwFromMirror) {
+            } else if (r.pwFromMirror || r.pwFromUebernahme) {
                 set("pairing_pw", pw);
             }
 

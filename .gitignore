@@ -1,3 +1,6 @@
 node_modules/
 *.ipk
 seed.html
+dist/
+*.bak*
+js/geraet.js
