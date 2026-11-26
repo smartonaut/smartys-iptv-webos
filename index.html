@@ -83,9 +83,8 @@
                     <button class="tab active" data-tab="live" data-i18n="nav.live">Live-TV</button>
                     <button class="tab" data-tab="movies" data-i18n="nav.movies">Filme</button>
                     <button class="tab" data-tab="series" data-i18n="nav.series">Serien</button>
-                    <button class="tab" data-tab="watch" data-i18n="nav.watch">Merken</button>
-                    <button class="tab" data-tab="epg" data-i18n="nav.guide">Programm</button>
                     <button class="tab" data-tab="cam" data-i18n="nav.cams">Kameras</button>
+                    <button class="tab" data-tab="watch" data-i18n="nav.watch">Meine Liste</button>
                     <button class="tab" data-tab="downloads" data-i18n="nav.downloads">Downloads</button>
                 </div>
                 <div class="topbar-right">
@@ -101,7 +100,10 @@
                         <div class="pane-title">Live-TV</div>
                         <div id="live-count" class="pane-sub"></div>
                     </div>
-                    <input id="live-search" class="search" type="text" placeholder="Sender suchen…" data-i18n-placeholder="search.channels">
+                    <div style="display:flex;gap:10px;align-items:center">
+                        <button id="btn-epg" class="btn-ghost">Programm</button>
+                        <input id="live-search" class="search" type="text" placeholder="Sender suchen…" data-i18n-placeholder="search.channels">
+                    </div>
                 </div>
                 <div class="columns">
                     <div id="live-categories" class="sidebar"></div>
@@ -159,6 +161,7 @@
             <!-- EPG-Grid -->
             <div id="pane-epg" class="pane hidden">
                 <div class="epg-head">
+                    <button id="btn-epg-back" class="btn-ghost">← Zurück</button>
                     <div class="pane-title">Programmübersicht</div>
                     <div id="epg-date" class="pane-sub"></div>
                     <div id="epg-count" class="pane-sub"></div>
@@ -404,6 +407,13 @@
                 <button class="btn-ghost wall-col" data-cols="3">3</button>
                 <button class="btn-ghost wall-col" data-cols="4">4</button>
                 <span id="cam-wall-count" class="cam-wall-count"></span>
+                <!-- v1.5.53: Quellen-Schalter direkt in der Wand -->
+                <span class="cam-wall-src">
+                    <button id="btn-wall-raster" class="btn-ghost">Raster (1 Stream)</button>
+                    <button id="btn-wall-src-firmen" class="btn-ghost">Firmen-Kameras</button>
+                    <button id="btn-wall-src-frei" class="btn-ghost">Freie Kameras</button>
+                    <button id="btn-wall-src-streams" class="btn-ghost">Freie Streams</button>
+                </span>
             </div>
             <div id="cam-wall-grid" class="cam-wall-grid"></div>
         </section>

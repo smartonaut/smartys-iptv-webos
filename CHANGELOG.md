@@ -1,3 +1,26 @@
+## 1.5.58 — 26.11.2026
+
+Kamera-Wand im Raster, Menue bleibt vollstaendig, Stillstands-Waechter.
+
+- **Raster-Modus** ist der Standard der Wand: der Server (pc-papa) setzt alle
+  Kameras per ffmpeg-xstack zu EINEM HLS-Stream zusammen (`/hls/wall/index.m3u8`).
+  Der TV dekodiert einen Strom statt fuenf. Knopf „Raster (1 Stream)“ in der
+  Wand, MENU schaltet ebenfalls um.
+- **Nicht mehr stummschalten**: der Raster-Stream fuehrt einen 21,5-kHz-Ton
+  (~-60 dB, unhoerbar). Nur mit laufendem Audiosignal haelt der Fernseher bzw.
+  eine Soundbar am HDMI durch.
+- **Stillstands-Waechter**: webOS bleibt nach einem Segment-Abriss gern mit
+  readyState 4 auf der letzten Zeit stehen, ohne Fehler zu melden. Alle 8 s wird
+  geprueft, nach zwei gleichen Zeitstaenden wird mit Cache-Buster neu geladen.
+- **Menue bleibt vollstaendig** (1.5.57): Filme/Serien/Meine Liste verschwanden,
+  sobald eine Quelle leer war (z. B. Jellyfin ohne Key) — die Quelle war dann in
+  den Einstellungen nicht mehr erreichbar. Leere Ansichten zeigen jetzt einen
+  Hinweis statt eines fehlenden Reiters.
+- **Einstellungen scrollen** (1.5.56): bei laengerem Inhalt war der obere Teil
+  abgeschnitten und per Fernbedienung nicht erreichbar (am LG gemessen).
+- Zwischenversionen **1.5.53–1.5.55** waren Zwischenbauten derselben Aenderungen
+  (Quellen-Schalter in der Wand, EPG-Knopf in der Senderliste, Scroll-Fix).
+
 ## 1.5.52 — 25.11.2026
 
 Kamera-Wand und Quellen-Schalter.

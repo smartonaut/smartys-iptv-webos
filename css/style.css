@@ -327,6 +327,12 @@ html, body {
 .dl-empty { color: #6B7A99; font-size: 18px; text-align: center; padding: 40px; line-height: 30px; }
 
 /* ---------- Settings ---------- */
+/* Einstellungen muessen scrollen koennen: .view zentriert vertikal, dadurch
+   wurde bei laengerem Inhalt der OBERE Teil abgeschnitten und war per
+   Fernbedienung nicht erreichbar (am LG gemessen, 26.11.2026). */
+#view-settings { justify-content: flex-start; overflow-y: auto; overflow-x: hidden; }
+#view-settings .settings { width: 100%; max-width: 900px; padding: 30px 0 90px; }
+
 .settings { width: 100%; max-width: 900px; }
 .settings-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 20px; }
 .settings-body { display: flex; flex-direction: column; gap: 16px; }
@@ -711,6 +717,12 @@ html[dir="rtl"] .epg-time, html[dir="rtl"] .ch-epg b { direction: ltr; unicode-b
 }
 .cam-wall-head { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; height: 52px; }
 .cam-wall-head .btn-ghost { font-size: 16px; padding: 6px 14px; }
+.cam-wall-src { display: flex; gap: 8px; margin-left: auto; }
+.cam-wall-src .btn-ghost { font-size: 14px; padding: 5px 12px; }
+.cam-wall-src .btn-ghost.aus { opacity: .45; }
+.cam-wall-src .btn-ghost.aktiv { background: rgba(255,255,255,.18); }
+#cam-wall.raster .cam-wall-tile { display: none; }
+#cam-wall .cam-wall-raster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 5; }
 .cam-wall-title { font-size: 20px; font-weight: bold; color: #E8EEFC; }
 .cam-wall-cols-label { font-size: 13px; color: #8FA3C8; margin-left: 8px; }
 .cam-wall .wall-col { min-width: 40px; text-align: center; padding: 6px 8px; font-size: 15px; }

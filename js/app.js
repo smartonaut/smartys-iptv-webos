@@ -80,7 +80,7 @@
 
 var PANEL = "https://panel.smartys.tech";
 var FAV_CAT = "__fav__";   /* Sonderwert fuer den Favoriten-Eintrag */
-var APP_VERSION = "1.5.52";
+var APP_VERSION = "1.5.58";
 
 /* ---------------------------------------------------------------
  *  Demo-Modus (v1.5.18)
@@ -1583,10 +1583,21 @@ function camServerUrl() { return (lsGet("camserver", "") || "").replace(/\/+$/, 
    <base>/hls/<id>/index.m3u8 (ffmpeg-HLS); der Producer startet erst auf
    Anforderung, deshalb /api/stream/<id> einmal anstossen (idempotent). */
 var CAM_FIRMEN = [];
+/* Wiedergabe-Backend bestimmen: go2rtc (:1986) liefert nur die LISTE, seine
+   HLS-Segmente parst webOS nicht. Das ffmpeg-Backend auf :8090 liefert
+   /api/cameras + /hls/<id>/index.m3u8 und laeuft auf dem Fernseher. Deshalb
+   wird fuer Firmen-Kameras die 8090-Adresse desselben Hosts genommen. */
+function camBackendBasis(base) {
+    if (!base) return "";
+    if (/:1986(\/|$)/.test(base)) return base.replace(/:1986(\/|$)/, ":8090$1");
+    return base;
+}
+
 function camFirmenLaden(base) {
     CAM_FIRMEN = [];
     if (!base || !quelleFirmen()) return Promise.resolve([]);
-    return http("GET", base + "/api/cameras", { timeout: 7000 }).then(function (xhr) {
+    var backend = camBackendBasis(base);
+    return http("GET", backend + "/api/cameras", { timeout: 7000 }).then(function (xhr) {
         if (xhr.status !== 200) throw new Error("kein /api/cameras");
         var o = JSON.parse(xhr.responseText) || {};
         var liste = Array.isArray(o) ? o : (o.cameras || []);
@@ -1597,11 +1608,11 @@ function camFirmenLaden(base) {
             return {
                 id: id, name: c.name || ("Kamera " + id), country: "PC",
                 type: "hls", lokal: true, firma: true, refresh: 0,
-                url: base + "/hls/" + encodeURIComponent(id) + "/index.m3u8"
+                url: backend + "/hls/" + encodeURIComponent(id) + "/index.m3u8"
             };
         });
         CAM_FIRMEN.forEach(function (c) {
-            http("GET", base + "/api/stream/" + encodeURIComponent(c.id), { timeout: 6000 })
+            http("GET", backend + "/api/stream/" + encodeURIComponent(c.id), { timeout: 6000 })
                 .catch(function () {});
         });
         return CAM_FIRMEN;
@@ -1915,15 +1926,22 @@ function tabsAnpassen() {
     var hatVod = !!(state.vodMovies && state.vodMovies.length);
     var hatSer = !!(state.seriesShows && state.seriesShows.length);
     var hatCam = !!(camListe().length);
+    /* v1.5.57: Das Menue bleibt vollstaendig sichtbar. Vorher verschwanden
+       Filme/Serien/Meine Liste, sobald eine Quelle leer war (z. B. Jellyfin
+       ohne Key) - dann war die Quelle in den Einstellungen nicht mehr
+       erreichbar (Vorgabe Smarty 26.11.2026). Leere Ansichten zeigen einen
+       Hinweis statt eines fehlenden Reiters. */
     var sicht = {
-        live: hatLive,
-        movies: hatVod,
-        series: hatSer,
-        watch: hatVod || hatSer,
+        live: true,
+        movies: true,
+        series: true,
+        watch: true,
         epg: hatLive,
-        cam: hatCam,
+        cam: true,      /* Kamera-Reiter bleibt, auch wenn die Liste (noch) leer ist */
         downloads: false            /* auf dem Fernseher gibt es keinen Download */
     };
+    var __epgBtn = document.getElementById("btn-epg");
+    if (__epgBtn) __epgBtn.classList.toggle("hidden", !hatLive);
     var tabs = document.querySelectorAll("#main-tabs .tab");
     var ersterSichtbar = null;
     for (var i = 0; i < tabs.length; i++) {
@@ -2077,6 +2095,89 @@ function camKey(c) { return String((c && (c.id || c.name)) || ""); }
    Englisch zurueck — in der deutschen Oberflaeche waere das falsch. */
 function wandText(de) { return (state.lang && state.lang !== "de") ? T(de) : de; }
 
+/* v1.5.54: Raster-Modus. Der Server setzt die fuenf Kameras zu EINEM Bild
+   zusammen (ffmpeg xstack auf pc-papa, Layout 3 Spalten, Halle 2 Felder breit).
+   Der Fernseher dekodiert dann nur einen 1080p-Stream statt fuenf — das ist
+   genau die Grenze, an der webOS vorher schwarz blieb. */
+function wandRasterUrl() {
+    var basis = camBackendBasis(camServerUrl());
+    if (!basis) return "";
+    return basis.replace(/\/$/, "") + "/hls/wall/index.m3u8";
+}
+
+function wandRasterStarten() {
+    var url = wandRasterUrl();
+    if (!url) {
+        var cnt = document.getElementById("cam-wall-count");
+        if (cnt) cnt.textContent = "Kein Kamera-Server eingetragen";
+        return;
+    }
+    state.wandRaster = true;
+    var box = document.getElementById("cam-wall");
+    if (box) box.classList.add("raster");
+    var v = document.getElementById("cam-wall-raster-video");
+    if (!v) {
+        v = document.createElement("video");
+        v.id = "cam-wall-raster-video";
+        /* NICHT stummschalten: der Stream fuehrt einen 21,5-kHz-Ton mit
+           (~-60 dB, unhoerbar). Nur so sieht der Fernseher bzw. eine
+           Soundbar am HDMI ein laufendes Audiosignal und schaltet nicht ab. */
+        v.autoplay = true; v.playsInline = true; v.volume = 1.0;
+        v.className = "cam-wall-raster";
+        (box || document.body).appendChild(v);
+    }
+    v.src = url;
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+    /* Waechter: webOS bleibt nach einem Segment-Abriss gern mit readyState 4
+       auf der letzten Zeit stehen, ohne Fehler zu melden (am TV gemessen:
+       currentTime bewegt sich nicht mehr). Alle 8 s pruefen und neu laden. */
+    if (state.wandRasterTimer) clearInterval(state.wandRasterTimer);
+    var letzteZeit = -1, haenger = 0;
+    state.wandRasterTimer = setInterval(function () {
+        if (!state.wandRaster || !document.body.contains(v)) {
+            clearInterval(state.wandRasterTimer); state.wandRasterTimer = null; return;
+        }
+        var jetzt = Math.round(v.currentTime * 10) / 10;
+        if (jetzt === letzteZeit) {
+            haenger++;
+            if (haenger >= 2) {
+                haenger = 0;
+                try {
+                    v.src = url + (url.indexOf("?") < 0 ? "?" : "&") + "t=" + Date.now();
+                    v.load();
+                    var q = v.play(); if (q && q.catch) q.catch(function () {});
+                    if (typeof PlayerLog !== "undefined" && PlayerLog.mark) PlayerLog.mark("Wand-Raster haengt -> neu geladen");
+                } catch (e) {}
+            }
+        } else { haenger = 0; letzteZeit = jetzt; }
+    }, 8000);
+    if (typeof PlayerLog !== "undefined" && PlayerLog.mark) PlayerLog.mark("Wand-Raster: " + url);
+}
+
+function wandRasterStopp() {
+    state.wandRaster = false;
+    if (state.wandRasterTimer) { clearInterval(state.wandRasterTimer); state.wandRasterTimer = null; }
+    var box = document.getElementById("cam-wall");
+    if (box) box.classList.remove("raster");
+    var v = document.getElementById("cam-wall-raster-video");
+    if (v) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch (e) {} if (v.parentNode) v.parentNode.removeChild(v); }
+}
+
+/* Zustand der Quellen-Schalter in der Wand-Kopfzeile (v1.5.53). Der Knopf
+   zeigt an, was gerade gilt — sonst weiss man nicht, ob "keine Kameras"
+   an der Quelle oder am Schalter liegt. */
+function wandSchalterZeichnen() {
+    var paare = [["btn-wall-src-firmen", "Firmen-Kameras", quelleFirmen()],
+                 ["btn-wall-src-frei", "Freie Kameras", quelleFrei()],
+                 ["btn-wall-src-streams", "Freie Streams", quelleStreams()]];
+    paare.forEach(function (p) {
+        var b = document.getElementById(p[0]);
+        if (!b) return;
+        b.textContent = wandText(p[1]) + ": " + (p[2] ? "AN" : "AUS");
+        b.classList.toggle("aus", !p[2]);
+    });
+}
+
 /* Kameras der Wand: Firmen-Kameras. Ohne /api/cameras (Bridge/go2rtc)
    sind die lokalen Streams die Firmen-Kameras. */
 function wandKameraListe() {
@@ -2195,6 +2296,7 @@ function wandZeichnen() {
     var liste = wandGeordnet();
     var cnt = document.getElementById("cam-wall-count");
     if (cnt) cnt.textContent = Tk("count.cams", { n: liste.length });
+    wandSchalterZeichnen();
     var cols = document.querySelectorAll("#cam-wall .wall-col");
     for (var ci = 0; ci < cols.length; ci++) {
         var cn = parseInt(cols[ci].getAttribute("data-cols"), 10);
@@ -2254,6 +2356,7 @@ function wandZeichnen() {
 }
 
 function wandStopp() {
+    wandRasterStopp();
     for (var i = 0; i < wandTimer.length; i++) {
         clearTimeout(wandTimer[i]); clearInterval(wandTimer[i]);
     }
@@ -2386,6 +2489,14 @@ function wandOeffnen() {
     box.classList.remove("hidden");
     state.camWall = true;
     wandZeichnen();
+    /* Standard der Wand: 1 Stream (Raster). Der Server rechnet den Zusammenschnitt,
+       der Fernseher dekodiert nur EINEN Strom statt fuenf (Vorgabe Smarty 26.11.2026). */
+    setTimeout(function () {
+        if (!state.camWall || state.wandRaster) return;
+        wandRasterStarten();
+        var rb = document.getElementById("btn-wall-raster");
+        if (rb) rb.classList.add("aktiv");
+    }, 150);
     setTimeout(function () {
         if (!state.camWall) return;
         var t = document.querySelector("#cam-wall-grid .cam-wall-tile") ||
@@ -5547,6 +5658,31 @@ function init() {
         if (b) b.onclick = function () { quelleUmschalten(p[1]); };
     });
 
+    /* v1.5.53: Quellen-Schalter direkt in der Kamera-Wand — umschalten und
+       die Wand sofort neu aufbauen (sonst bleibt die alte Kachelliste stehen). */
+    [["btn-wall-src-firmen", "src_firmen"], ["btn-wall-src-frei", "src_frei"],
+     ["btn-wall-src-streams", "src_streams"]].forEach(function (p) {
+        var b = document.getElementById(p[0]);
+        if (b) b.onclick = function () {
+            quelleUmschalten(p[1]);
+            wandSchalterZeichnen();
+            if (state.camWall) wandZeichnen();
+        };
+    });
+
+    /* v1.5.54: Raster-Knopf in der Wand */
+    var __btnRaster = document.getElementById("btn-wall-raster");
+    if (__btnRaster) __btnRaster.onclick = function () {
+        if (state.wandRaster) { wandRasterStopp(); __btnRaster.classList.remove("aktiv"); }
+        else { wandRasterStarten(); __btnRaster.classList.add("aktiv"); }
+    };
+
+    /* v1.5.53: Programm (EPG) ist kein eigener Reiter mehr — Knopf in Live-TV */
+    var __btnEpg = document.getElementById("btn-epg");
+    if (__btnEpg) __btnEpg.onclick = function () { activateTab("epg"); };
+    var __btnEpgBack = document.getElementById("btn-epg-back");
+    if (__btnEpgBack) __btnEpgBack.onclick = function () { activateTab("live"); };
+
     /* v1.5.52: Kamera-Wand — Knopf im Kamera-Tab, Knopf und
        Zurueck-Taste als Rueckweg, Spalten 1-4 in der Kopfzeile. */
     var __wallBtn = document.getElementById("btn-cam-wall");
@@ -5803,6 +5939,12 @@ function init() {
             if (state.currentView === "view-unlock") {
                 // Unlock-View: Back = kein Provider-Zugang → Pairing
                 show("view-pairing");
+                e.preventDefault();
+                return;
+            }
+            /* v1.5.53: Programm ist kein Reiter mehr — Back fuehrt nach Live-TV */
+            if (state.tab === "epg" && state.currentView === "view-home") {
+                activateTab("live");
                 e.preventDefault();
                 return;
             }
